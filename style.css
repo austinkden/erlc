@@ -1,0 +1,262 @@
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400..700;1,400..700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Azeret+Mono:wght@400..700&display=swap');
+
+
+:root {
+    --color-in-quarters: #33b8ff;
+    --color-in-service: #2243d7;
+    --color-enroute: #3eda1b;
+    --color-onscene: #f53434;
+    --color-transport: #e8d22a;
+    --color-arrived: #e234f5;
+    --color-out-service: #000000;
+
+    --color-in-half: #2b7eeb;
+}
+
+* {
+    padding: 0px;
+    margin: 0px;
+    box-sizing: border-box;
+    font-family: 'Instrument Sans', sans-serif;
+    line-height: 1;
+    transition: 0.275s;
+}
+
+body {
+    background: black;
+    margin: 0px;
+    padding: 0px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+}
+
+div.bottom-boxes {
+    height: 20vh;
+    width: 100%;
+    background: #303030;
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+    gap: 20px;
+
+    div.section2 {
+        border-radius: 10px;
+        border: 1px solid white;
+        padding: 10px;
+        overflow: scroll;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 5px;
+    }
+
+    div.section2::-webkit-scrollbar {
+        display: none;
+    }
+
+    div.in {
+        height: 100%;
+        width: 50%;
+        background: var(--color-in-half);
+    }
+    
+    div.out {
+        height: 100%;
+        width: 50%;
+        background: var(--color-out-service);
+    }
+
+    div.unit {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        padding: 5px;
+        background: white;
+        width: 115px;
+        height: 100%;
+        border-radius: 5px;
+        color: black;
+        gap: 5px;
+        border: 1px solid #777;
+        min-width: 115px;
+
+        select {
+            width: 100%;
+            border-radius: 3px;
+            background: white;
+
+            option.inqrt {
+                background-color: var(--color-in-quarters);
+            }
+
+            option.insvc {
+                background-color: var(--color-in-service);
+                color: white;
+            }
+
+            option.enrte {
+                background-color: var(--color-enroute);
+            }
+
+            option.onscn {
+                background-color: var(--color-onscene);
+                color: white;
+            }
+
+            option.tsprt {
+                background-color: var(--color-transport);
+            }
+
+            option.arrvd {
+                background-color: var(--color-arrived);
+                color: white;
+            }
+
+            option.otsvc {
+                background-color: var(--color-out-service);
+                color: white;
+            }
+        }
+    }
+}
+
+div.top-boxes {
+    display: flex;
+    flex-direction: row;
+    gap: 20px;
+    height: 70vh;
+    width: 100vw;
+    padding: 20px;
+    justify-content: center;
+    align-items: center;
+
+    div.enroute h2 {
+        color: var(--color-enroute);
+    }
+    
+    div.onscene h2 {
+        color: var(--color-onscene);
+    }
+    
+    div.transport h2 {
+        color: var(--color-transport);
+    }
+
+    div.section2 {
+        border-radius: 10px;
+        border: 1px solid white;
+        padding: 10px;
+        height: 100%;
+        width: calc(1/3 * 100%);
+        background: #303030;
+        overflow: scroll;
+
+        h2 {
+            text-align: center;
+            font-size: 20px;
+            margin-bottom: 10px;
+        }
+    }
+
+    div.unit {
+        width: 100%;
+        height: 30px;
+        min-height: 30px;
+        background: white;
+        border-radius: 5px;
+        display: flex;
+        flex-direction: row;
+        padding: 5px;
+        align-items: center;
+        gap: 5px;
+        
+        p {
+            text-align: center;
+            width: 105px;
+        }
+
+        select {
+            width: 50%;
+            background: white;
+            border-radius: 3px;
+
+            option.inqrt {
+                background-color: var(--color-in-quarters);
+            }
+
+            option.insvc {
+                background-color: var(--color-in-service);
+                color: white;
+            }
+
+            option.enrte {
+                background-color: var(--color-enroute);
+            }
+
+            option.onscn {
+                background-color: var(--color-onscene);
+                color: white;
+            }
+
+            option.tsprt {
+                background-color: var(--color-transport);
+            }
+
+            option.arrvd {
+                background-color: var(--color-arrived);
+                color: white;
+            }
+
+            option.otsvc {
+                background-color: var(--color-out-service);
+                color: white;
+            }
+        }
+    }
+}
+
+div.top-row {
+    height: 10vh;
+    width: 100vw;
+    background: #303030;
+    padding: 15px 20px;
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    gap: 20px;
+
+    button {
+        height: 100%;
+        border-radius: 10px;
+        font-size: 20px;
+        cursor: pointer;
+        border: 1px solid white;
+        background: black;
+        color: white;
+    }
+
+    button.new-unit {
+        width: 80%;
+    }
+
+    button.help {
+        width: 20%;
+    }
+
+    button:hover {
+        background: #151515;
+    }
+}
+
+.unit-name-edit {
+    width: 100%;
+    padding: 0px 4px; /* Optional: Adjust for better alignment */
+}
