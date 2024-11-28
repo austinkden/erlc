@@ -18,6 +18,10 @@ function createUnit(unitName) {
   const unitDiv = document.createElement('div');
   unitDiv.className = 'unit';
 
+  // Unit top div (for unit name, vehicle and status selects)
+  const unitTopDiv = document.createElement('div');
+  unitTopDiv.className = 'unit-top';
+
   // Unit name (editable)
   const unitNameEl = document.createElement('p');
   unitNameEl.className = 'unit-name';
@@ -48,15 +52,27 @@ function createUnit(unitName) {
     statusSelect.appendChild(option);
   });
 
+  // Append to unit-top div
+  unitTopDiv.appendChild(unitNameEl);
+  unitTopDiv.appendChild(vehicleSelect);
+  unitTopDiv.appendChild(statusSelect);
+
+  // Unit bottom div (for CALL/STN input)
+  const unitBottomDiv = document.createElement('div');
+  unitBottomDiv.className = 'unit-bottom';
+  const callInput = document.createElement('input');
+  callInput.type = 'text';
+  callInput.placeholder = 'CALL/STN';
+  unitBottomDiv.appendChild(callInput);
+
+  // Append both unitTopDiv and unitBottomDiv to unitDiv
+  unitDiv.appendChild(unitTopDiv);
+  unitDiv.appendChild(unitBottomDiv);
+
   // Move unit based on status change
   statusSelect.addEventListener('change', () => {
     moveUnit(unitDiv, statusSelect.value);
   });
-
-  // Append elements to unitDiv
-  unitDiv.appendChild(unitNameEl);
-  unitDiv.appendChild(vehicleSelect);
-  unitDiv.appendChild(statusSelect);
 
   // Set up the right-click listener for deleting
   setupRightClickListener(unitDiv);
@@ -108,8 +124,6 @@ function saveUnitName(input) {
 function moveUnit(unitDiv, status) {
   switch (status) {
     case 'inqrt':
-      sections.in.appendChild(unitDiv);
-      break;
     case 'insvc':  // 'INSVC' now goes to the 'in' div
       sections.in.appendChild(unitDiv);
       break;
@@ -137,10 +151,10 @@ newUnitBtn.addEventListener('click', () => {
   sections.in.appendChild(newUnit);
 });
 
+// Open help on help button click
 helpBtn.addEventListener('click', () => {
-    window.open('https://github.com/austinkden/erlc/blob/main/dispatch/fire/README.md');
+  window.open('https://github.com/austinkden/erlc/blob/main/dispatch/fire/README.md');
 });
-
 
 // Listen for Alt + N key press to create a new unit
 document.addEventListener('keydown', (e) => {
