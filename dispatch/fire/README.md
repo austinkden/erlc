@@ -26,5 +26,5 @@
 
 ## Managing Units
 **Rename** - To rename a unit, simply click on the current name, enter the name you'd like to rename the unit to, then press enter.  
-**Delete** - To delete a unit, simply right click on the unit twice.
+**Delete** - To delete a unit, simply right click on the unit twice.  
 **Clear All** - To clear all units, simply refresh the page.
