@@ -138,7 +138,7 @@ newUnitBtn.addEventListener('click', () => {
 });
 
 helpBtn.addEventListener('click', () => {
-    window.open('https://austinkden.github.io/erlc/dispatch/fire/help.md');
+    window.open('https://github.com/austinkden/erlc/blob/main/dispatch/fire/README.md');
 });
 
 
