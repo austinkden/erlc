@@ -23,6 +23,10 @@
     transition: 0.275s;
 }
 
+*::-webkit-scrollbar {
+    display: none;
+}
+
 body {
     background: black;
     margin: 0px;
