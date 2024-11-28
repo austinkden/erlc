@@ -10,8 +10,6 @@
     --color-transport: #e8d22a;
     --color-arrived: #e234f5;
     --color-out-service: #000000;
-
-    --color-in-half: #2b7eeb;
 }
 
 * {
@@ -67,7 +65,7 @@ div.bottom-boxes {
     div.in {
         height: 100%;
         width: 50%;
-        background: var(--color-in-half);
+        background: #050d36;
     }
     
     div.out {
