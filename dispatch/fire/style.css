@@ -87,14 +87,28 @@ div.bottom-boxes {
         height: 100%;
         border-radius: 5px;
         color: black;
-        gap: 5px;
         border: 1px solid #777;
         min-width: 115px;
+
+        p {
+            text-align: center;
+            margin-bottom: 5px;
+        }
 
         select {
             width: 100%;
             border-radius: 3px;
             background: white;
+            border: 1px solid black;
+            margin-bottom: 5px;
+        }
+
+        input {
+            border-radius: 3px;
+            border: 1px solid black;
+            width: 100%;
+            padding: 0px 5px;
+            text-align: center;
         }
     }
 }
@@ -142,12 +156,12 @@ div.top-boxes {
 
     div.unit {
         width: 100%;
-        height: 30px;
+        height: 55px;
         min-height: 30px;
         background: white;
         border-radius: 5px;
         display: flex;
-        flex-direction: row;
+        flex-direction: column;
         padding: 5px;
         align-items: center;
         gap: 5px;
@@ -157,42 +171,32 @@ div.top-boxes {
             width: 105px;
         }
 
+        div.unit-top {
+            display: flex;
+            flex-direction: row;
+            justify-content: center;
+            align-items: center;
+            gap: 5px;
+            width: 100%;
+        }
+
+        div.unit-bottom {
+            width: 100%;
+        }
+
         select {
             width: 50%;
             background: white;
             border-radius: 3px;
+            border: 1px solid black;
+        }
 
-            option.inqrt {
-                background-color: var(--color-in-quarters);
-            }
-
-            option.insvc {
-                background-color: var(--color-in-service);
-                color: white;
-            }
-
-            option.enrte {
-                background-color: var(--color-enroute);
-            }
-
-            option.onscn {
-                background-color: var(--color-onscene);
-                color: white;
-            }
-
-            option.tsprt {
-                background-color: var(--color-transport);
-            }
-
-            option.arrvd {
-                background-color: var(--color-arrived);
-                color: white;
-            }
-
-            option.otsvc {
-                background-color: var(--color-out-service);
-                color: white;
-            }
+        input {
+            border-radius: 3px;
+            border: 1px solid black;
+            width: 100%;
+            padding: 0px 5px;
+            text-align: center;
         }
     }
 }
@@ -233,5 +237,5 @@ div.top-row {
 
 .unit-name-edit {
     width: 100%;
-    padding: 0px 4px; /* Optional: Adjust for better alignment */
+    padding: 0px 5px;
 }
