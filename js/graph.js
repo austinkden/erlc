@@ -164,17 +164,19 @@ export class RoadGraph {
         // Connect or create start and end nodes
         let startNode = options.startNodeId ? this.getNode(options.startNodeId) : null;
         if (!startNode) {
-            startNode = this.findOrCreateNodeAt(waypoints[0].x, waypoints[0].y, 10);
+            startNode = this.addNode(waypoints[0].x, waypoints[0].y);
+        } else {
+            // Snap first waypoint precisely to designated start node
+            waypoints[0] = { x: startNode.x, y: startNode.y };
         }
-        // Snap first waypoint precisely to start node
-        waypoints[0] = { x: startNode.x, y: startNode.y };
 
         let endNode = options.endNodeId ? this.getNode(options.endNodeId) : null;
         if (!endNode) {
-            endNode = this.findOrCreateNodeAt(waypoints[waypoints.length - 1].x, waypoints[waypoints.length - 1].y, 10);
+            endNode = this.addNode(waypoints[waypoints.length - 1].x, waypoints[waypoints.length - 1].y);
+        } else {
+            // Snap last waypoint precisely to designated end node
+            waypoints[waypoints.length - 1] = { x: endNode.x, y: endNode.y };
         }
-        // Snap last waypoint precisely to end node
-        waypoints[waypoints.length - 1] = { x: endNode.x, y: endNode.y };
 
         const lane = {
             id: laneId,
@@ -279,13 +281,13 @@ export class RoadGraph {
         if (index === 0) {
             lane.waypoints.splice(0, 1);
             const newStart = lane.waypoints[0];
-            const newStartNode = this.findOrCreateNodeAt(newStart.x, newStart.y, 8);
+            const newStartNode = this.addNode(newStart.x, newStart.y);
             lane.startNodeId = newStartNode.id;
             this.cleanupOrphanNodes();
         } else if (index === lane.waypoints.length - 1) {
             lane.waypoints.splice(lane.waypoints.length - 1, 1);
             const newEnd = lane.waypoints[lane.waypoints.length - 1];
-            const newEndNode = this.findOrCreateNodeAt(newEnd.x, newEnd.y, 8);
+            const newEndNode = this.addNode(newEnd.x, newEnd.y);
             lane.endNodeId = newEndNode.id;
             this.cleanupOrphanNodes();
         } else {
@@ -305,7 +307,7 @@ export class RoadGraph {
         this.pushHistory();
 
         const splitPoint = lane.waypoints[waypointIndex];
-        const splitNode = this.findOrCreateNodeAt(splitPoint.x, splitPoint.y, 5);
+        const splitNode = this.addNode(splitPoint.x, splitPoint.y);
 
         // First half keeps the original lane id
         const firstHalfWaypoints = lane.waypoints.slice(0, waypointIndex + 1);

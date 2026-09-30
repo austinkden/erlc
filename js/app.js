@@ -214,12 +214,10 @@ class RoadApp {
                 }
             }
 
-            // Snapping Detection (respect active layer)
-            const snap = this.graph.findSnapTarget(world, 18 / this.renderer.scale, null, this.currentTool === 'draw' ? this.activeLayer : null);
-            this.renderer.snapTarget = snap;
-
-            // Hover detection in Select / Connect modes
+            // Snapping & Hover detection in Select / Connect modes (never auto-snap or combine in Draw mode)
             if (this.currentTool === 'select' || this.currentTool === 'connect') {
+                const snap = this.graph.findSnapTarget(world, 18 / this.renderer.scale);
+                this.renderer.snapTarget = snap;
                 if (snap && snap.type === 'node') {
                     this.renderer.hoveredNodeId = snap.node.id;
                     this.renderer.hoveredLaneId = null;
@@ -230,6 +228,10 @@ class RoadApp {
                     this.renderer.hoveredLaneId = null;
                     this.renderer.hoveredNodeId = null;
                 }
+            } else {
+                this.renderer.snapTarget = null;
+                this.renderer.hoveredNodeId = null;
+                this.renderer.hoveredLaneId = null;
             }
 
             // Cursor styling in select mode
@@ -367,18 +369,6 @@ class RoadApp {
 
         if (this.currentTool === 'draw') {
             let pointToPlace = { ...world };
-            let targetNodeId = null;
-
-            if (snap) {
-                pointToPlace = { ...snap.point };
-                if (snap.type === 'node') {
-                    targetNodeId = snap.node.id;
-                } else if (snap.type === 'lane') {
-                    // Split the intersected lane or snap to point
-                    const newNode = this.graph.findOrCreateNodeAt(snap.point.x, snap.point.y, 8);
-                    targetNodeId = newNode.id;
-                }
-            }
 
             // If Shift is pressed and we already have a point, snap angle to 45 deg
             if (this.isShiftPressed && this.drawingWaypoints.length > 0) {
@@ -386,12 +376,12 @@ class RoadApp {
                 pointToPlace = snapAngle(prev, pointToPlace);
             }
 
-            // First point
+            // First point of lane
             if (this.drawingWaypoints.length === 0) {
                 this.drawingWaypoints.push(pointToPlace);
-                this.drawingStartNodeId = targetNodeId;
+                this.drawingStartNodeId = null;
                 this.renderer.activeDrawingWaypoints = this.drawingWaypoints;
-                console.log(`[RoadApp:Draw] Started drawing lane at (${Math.round(pointToPlace.x)}, ${Math.round(pointToPlace.y)})` + (targetNodeId ? ` (snapped to start node ${targetNodeId})` : ''));
+                console.log(`[RoadApp:Draw] Started drawing lane at (${Math.round(pointToPlace.x)}, ${Math.round(pointToPlace.y)})`);
                 this.renderer.render();
                 return;
             }
@@ -404,15 +394,8 @@ class RoadApp {
             this.drawingWaypoints.push(pointToPlace);
             this.renderer.activeDrawingWaypoints = this.drawingWaypoints;
             console.log(`[RoadApp:Draw] Added waypoint #${this.drawingWaypoints.length} at (${Math.round(pointToPlace.x)}, ${Math.round(pointToPlace.y)})`);
-
-            // If clicking on an existing node (that is not the very first node of this lane), finish lane automatically!
-            if (targetNodeId && targetNodeId !== this.drawingStartNodeId && this.drawingWaypoints.length >= 2) {
-                console.log(`[RoadApp:Draw] Auto-connecting lane to existing junction node ${targetNodeId}`);
-                this.finishDrawing(targetNodeId);
-                return;
-            }
-
             this.renderer.render();
+            return;
         } else if (this.currentTool === 'select') {
             // 1. Check if clicking on the currently selected node (or within grab radius)
             if (this.renderer.selectedNodeId) {
