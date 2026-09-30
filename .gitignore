@@ -13,3 +13,6 @@ desktop.ini
 *.log
 .tempmediaStorage/
 scratch/
+
+# Custom
+realtime.md
