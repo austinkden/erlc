@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ERLC Road Studio</title>
+    <meta name="description" content="Road network editor for Emergency Response: Liberty County.">
+    <link rel="stylesheet" href="css/style.css?v=20260929_reicon">
+    <!-- Reicon Icons (reicon.dev) -->
+    <script src="https://unpkg.com/reicon/cdn/reicon.js"></script>
+</head>
+<body>
+    <div id="app-container">
+        <!-- Interactive Canvas Area -->
+        <main id="canvas-wrapper">
+            <canvas id="map-canvas"></canvas>
+
+            <!-- Floating Minimap Card -->
+            <aside class="minimap-card" id="minimap-card" aria-label="Overview Minimap">
+                <div class="minimap-header">
+                    <span class="minimap-title">Minimap</span>
+                    <button class="icon-subtle" id="minimap-toggle" title="Toggle Minimap" aria-label="Toggle Minimap">
+                        <re-icon icon="chevron-down" size="14"></re-icon>
+                    </button>
+                </div>
+                <div class="minimap-body" id="minimap-body">
+                    <canvas id="minimap-canvas" width="180" height="180"></canvas>
+                </div>
+            </aside>
+        </main>
+
+        <!-- Top Header / HUD -->
+        <header class="header-hud">
+            <div class="brand-section">
+                <div class="brand-logo" title="ERLC Road Studio">
+                    <re-icon icon="map" size="20"></re-icon>
+                </div>
+                <!-- Clean Page Title -->
+                <div class="portal-title">
+                    ERLC Road Studio
+                </div>
+            </div>
+
+            <!-- Tool Selector -->
+            <nav class="tools-hub" aria-label="Editor Tools">
+                <button class="tool-btn active" data-tool="draw" id="tool-draw" title="Draw Road Lane (R)">
+                    <re-icon icon="pen-tool" size="16"></re-icon>
+                    <span>Draw Lane</span>
+                    <kbd class="tool-shortcut">R</kbd>
+                </button>
+                <button class="tool-btn" data-tool="select" id="tool-select" title="Select & Reshape (S)">
+                    <re-icon icon="pointer" size="16"></re-icon>
+                    <span>Select / Move</span>
+                    <kbd class="tool-shortcut">S</kbd>
+                </button>
+                <button class="tool-btn" data-tool="connect" id="tool-connect" title="Lane Change / Connector (C)">
+                    <re-icon icon="branch-up" size="16"></re-icon>
+                    <span>Connect Lanes</span>
+                    <kbd class="tool-shortcut">C</kbd>
+                </button>
+            </nav>
+
+            <!-- Action Controls -->
+            <div class="header-actions">
+                <button class="icon-btn" id="btn-route" title="Route Simulator">
+                    <re-icon icon="compass" size="17"></re-icon>
+                </button>
+                <button class="icon-btn" id="btn-diagnostics" title="Network Diagnostics">
+                    <re-icon icon="stethoscope" size="17"></re-icon>
+                </button>
+                <button class="icon-btn" id="btn-generator" title="Generate Roundabout / Cul-de-sac">
+                    <re-icon icon="plus-circle" size="17"></re-icon>
+                </button>
+                <button class="icon-btn" id="btn-undo" title="Undo (Ctrl+Z)" disabled>
+                    <re-icon icon="undo" size="17"></re-icon>
+                </button>
+                <button class="icon-btn" id="btn-redo" title="Redo (Ctrl+Y)" disabled>
+                    <re-icon icon="redo" size="17"></re-icon>
+                </button>
+                <button class="icon-btn" id="btn-fit" title="Fit Entire Map (F)">
+                    <re-icon icon="maximize" size="17"></re-icon>
+                </button>
+                <button class="icon-btn" id="btn-import" title="Import JSON File">
+                    <re-icon icon="folder-open" size="17"></re-icon>
+                </button>
+                <button class="primary-btn" id="btn-export" title="Export Network (JSON / Lua)">
+                    <re-icon icon="download" size="15"></re-icon>
+                    <span>Export</span>
+                </button>
+                <button class="icon-btn" id="btn-clear" title="Clear Network">
+                    <re-icon icon="trash" size="17"></re-icon>
+                </button>
+                <button class="icon-btn" id="btn-help" title="Shortcuts & Mouse Controls (H)">
+                    <re-icon icon="help-circle" size="17"></re-icon>
+                </button>
+            </div>
+        </header>
+
+        <!-- Right Floating Stack (Map Layer + Inspector with clean margin) -->
+        <div class="right-stack">
+            <!-- Floating Map Layer & Overlays Card -->
+            <aside class="layer-card" aria-label="Map Layers">
+                <div class="card-heading">
+                    <span>Map Layer</span>
+                    <span class="brand-badge" style="font-size: 9px;">TAB</span>
+                </div>
+                <div class="layer-slider-row">
+                    <div class="layer-labels">
+                        <span>Clean</span>
+                        <span>Postals</span>
+                    </div>
+                    <input type="range" id="postals-slider" min="0" max="100" value="0" title="Slide to blend Postal code map">
+                </div>
+                <div class="toggle-group">
+                    <label class="toggle-item">
+                        <span>Traffic Flow Arrows</span>
+                        <input type="checkbox" id="toggle-arrows" checked>
+                    </label>
+                    <label class="toggle-item">
+                        <span>Junction Nodes</span>
+                        <input type="checkbox" id="toggle-nodes" checked>
+                    </label>
+                    <label class="toggle-item">
+                        <span>World Grid (Zoomed)</span>
+                        <input type="checkbox" id="toggle-grid" checked>
+                    </label>
+                </div>
+            </aside>
+
+            <!-- Floating Inspector Panel with deliberate margin where yellow circles were -->
+            <aside class="inspector-panel" id="inspector-panel" aria-label="Selected Item Properties">
+                <div class="inspector-header">
+                    <span class="inspector-title" id="inspector-title">Lane Properties</span>
+                    <span class="inspector-badge" id="inspector-waypoints-count">0 pts</span>
+                </div>
+
+                <!-- Lane Specific Fields Container -->
+                <div id="inspector-lane-fields">
+                    <div class="form-group">
+                        <label class="form-label" for="inspector-name">Street Name</label>
+                        <input type="text" id="inspector-name" class="form-input" placeholder="e.g. Main St">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="inspector-speed">Speed Limit (MPH)</label>
+                        <input type="number" id="inspector-speed" class="form-input" min="5" max="150" step="5" placeholder="e.g. 45">
+                    </div>
+
+                    <!-- Custom CSS Dropdown for Material (M3 compliant) -->
+                    <div class="form-group">
+                        <label class="form-label" id="inspector-material-label">Material</label>
+                        <div class="custom-select" id="inspector-material-select" data-value="paved">
+                            <button type="button" class="custom-select-trigger" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="inspector-material-label">
+                                <span class="custom-select-label">Paved</span>
+                                <re-icon icon="chevron-down" size="14" class="custom-select-arrow"></re-icon>
+                            </button>
+                            <div class="custom-select-options" role="listbox">
+                                <div class="custom-option selected" data-value="paved" role="option" aria-selected="true">
+                                    <span>Paved</span>
+                                    <re-icon icon="check" size="14" class="option-check"></re-icon>
+                                </div>
+                                <div class="custom-option" data-value="wood" role="option" aria-selected="false">
+                                    <span>Wood</span>
+                                    <re-icon icon="check" size="14" class="option-check"></re-icon>
+                                </div>
+                                <div class="custom-option" data-value="dirt" role="option" aria-selected="false">
+                                    <span>Dirt</span>
+                                    <re-icon icon="check" size="14" class="option-check"></re-icon>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- One-Way / Two-Way Traffic Flow Toggle -->
+                    <div class="form-group">
+                        <label class="form-label">Traffic Flow</label>
+                        <div class="toggle-pill-group" id="inspector-direction-toggle">
+                            <button type="button" class="toggle-pill-btn active" id="btn-flow-oneway" data-oneway="true" title="One-Way Traffic">
+                                <re-icon icon="arrow-right" size="14"></re-icon>
+                                <span>One-Way</span>
+                            </button>
+                            <button type="button" class="toggle-pill-btn" id="btn-flow-twoway" data-oneway="false" title="Two-Way Traffic">
+                                <re-icon icon="transfer-h" size="14"></re-icon>
+                                <span>Two-Way</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Elevation Layer -->
+                    <div class="form-group" id="inspector-layer-group">
+                        <label class="form-label" id="inspector-layer-label">Elevation Layer</label>
+                        <div class="custom-select" id="inspector-layer-select" data-value="0">
+                            <button type="button" class="custom-select-trigger" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="inspector-layer-label">
+                                <span class="custom-select-label">0 (Ground)</span>
+                                <re-icon icon="chevron-down" size="14" class="custom-select-arrow"></re-icon>
+                            </button>
+                            <div class="custom-select-options" role="listbox">
+                                <div class="custom-option" data-value="-1" role="option">
+                                    <span>-1 (Tunnel)</span>
+                                    <re-icon icon="check" size="14" class="option-check"></re-icon>
+                                </div>
+                                <div class="custom-option selected" data-value="0" role="option">
+                                    <span>0 (Ground)</span>
+                                    <re-icon icon="check" size="14" class="option-check"></re-icon>
+                                </div>
+                                <div class="custom-option" data-value="1" role="option">
+                                    <span>1 (Bridge)</span>
+                                    <re-icon icon="check" size="14" class="option-check"></re-icon>
+                                </div>
+                                <div class="custom-option" data-value="2" role="option">
+                                    <span>2 (Flyover)</span>
+                                    <re-icon icon="check" size="14" class="option-check"></re-icon>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Smooth Splines Toggle -->
+                    <div class="form-group" id="inspector-smooth-group">
+                        <label class="toggle-item">
+                            <span>Smooth Spline Curve</span>
+                            <input type="checkbox" id="inspector-smooth">
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Node Specific Fields Container -->
+                <div id="inspector-node-fields" style="display: none;">
+                    <div class="form-group">
+                        <label class="form-label" for="inspector-node-id-display">Node ID</label>
+                        <input type="text" id="inspector-node-id-display" class="form-input" style="font-family: 'JetBrains Mono', monospace;" readonly>
+                    </div>
+                </div>
+
+                <!-- Turn Restrictions Matrix -->
+                <div class="form-group" id="inspector-turn-matrix-group" style="display: none;">
+                    <label class="form-label">Turn Restrictions Matrix</label>
+                    <div class="turn-matrix-container" id="inspector-turn-matrix-list"></div>
+                </div>
+
+                <div class="form-group" id="inspector-topology-group">
+                    <label class="form-label">Topology Status</label>
+                    <div id="inspector-junction-info" style="font-size: 12px; color: var(--primary); font-weight: 600;">
+                        Standard Segment
+                    </div>
+                </div>
+
+                <div class="btn-group-grid" id="inspector-single-actions">
+                    <button class="secondary-btn" id="inspector-reverse" title="Reverse the traffic flow of this lane">
+                        <re-icon icon="rotate-right" size="14"></re-icon>
+                        <span>Reverse</span>
+                    </button>
+                    <button class="secondary-btn danger-btn" id="inspector-delete" title="Delete selected lane (Delete)">
+                        <re-icon icon="trash" size="14"></re-icon>
+                        <span>Delete</span>
+                    </button>
+                </div>
+
+                <!-- Multi-Select Batch Actions -->
+                <div id="inspector-multi-section" style="display: none; border-top: 1px solid var(--outline); padding-top: 12px; margin-top: 8px;">
+                    <div class="inspector-header" style="margin-bottom: 8px;">
+                        <span class="inspector-title">Batch Selection</span>
+                        <span class="inspector-badge" id="inspector-multi-count">0 items</span>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="multi-speed">Batch Speed Limit (MPH)</label>
+                        <input type="number" id="multi-speed" class="form-input" min="5" max="150" step="5" placeholder="Speed for all">
+                    </div>
+                    <div class="btn-group-grid" style="margin-top: 6px;">
+                        <button class="secondary-btn" id="btn-multi-apply-speed">
+                            <re-icon icon="check" size="14"></re-icon>
+                            <span>Apply Speed</span>
+                        </button>
+                        <button class="secondary-btn danger-btn" id="btn-multi-delete">
+                            <re-icon icon="trash" size="14"></re-icon>
+                            <span>Delete All</span>
+                        </button>
+                    </div>
+                </div>
+            </aside>
+        </div>
+
+        <!-- Bottom Status Bar -->
+        <footer class="status-bar">
+            <div class="status-left">
+                <span><span class="status-indicator"></span>Ready</span>
+                <span id="status-tool">DRAW</span>
+                <span id="status-coords">X: 0 Y: 0 (0, 0 studs)</span>
+            </div>
+            <div class="status-right">
+                <span id="status-zoom">100%</span>
+            </div>
+        </footer>
+
+        <!-- Custom Context Menu for Right-Click -->
+        <div class="context-menu" id="context-menu"></div>
+
+        <!-- Toast Notifications Container -->
+        <div id="toast-container"></div>
+
+        <!-- Shortcuts & Mouse Controls Cheatsheet Modal -->
+        <div class="modal" id="shortcuts-modal" role="dialog" aria-modal="true" aria-labelledby="modal-shortcuts-title">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content">
+                <div class="modal-title" id="modal-shortcuts-title">
+                    <span>Mouse & Keyboard Shortcuts</span>
+                    <button class="modal-close" aria-label="Close modal">
+                        <re-icon icon="x" size="16"></re-icon>
+                    </button>
+                </div>
+                <div class="shortcuts-grid">
+                    <div class="shortcut-card">
+                        <span class="shortcut-label">Add Waypoint / Reshape</span>
+                        <kbd class="shortcut-key">Left-Click</kbd>
+                    </div>
+                    <div class="shortcut-card">
+                        <span class="shortcut-label">Smooth Canvas Pan</span>
+                        <kbd class="shortcut-key">Middle-Click Drag</kbd>
+                    </div>
+                    <div class="shortcut-card">
+                        <span class="shortcut-label">Alternative Pan</span>
+                        <kbd class="shortcut-key">Space + Left Drag</kbd>
+                    </div>
+                    <div class="shortcut-card">
+                        <span class="shortcut-label">Zoom In / Out</span>
+                        <kbd class="shortcut-key">Mouse Wheel</kbd>
+                    </div>
+                    <div class="shortcut-card">
+                        <span class="shortcut-label">Finish Lane / Context Menu</span>
+                        <kbd class="shortcut-key">Right-Click</kbd>
+                    </div>
+                    <div class="shortcut-card">
+                        <span class="shortcut-label">Duplicate Parallel Lane</span>
+                        <kbd class="shortcut-key">D</kbd>
+                    </div>
+                    <div class="shortcut-card">
+                        <span class="shortcut-label">Draw Tool</span>
+                        <kbd class="shortcut-key">R</kbd>
+                    </div>
+                    <div class="shortcut-card">
+                        <span class="shortcut-label">Select / Move Tool</span>
+                        <kbd class="shortcut-key">S / V</kbd>
+                    </div>
+                    <div class="shortcut-card">
+                        <span class="shortcut-label">Connect Lanes Tool</span>
+                        <kbd class="shortcut-key">C</kbd>
+                    </div>
+                    <div class="shortcut-card">
+                        <span class="shortcut-label">Toggle Postals Map</span>
+                        <kbd class="shortcut-key">Tab</kbd>
+                    </div>
+                    <div class="shortcut-card">
+                        <span class="shortcut-label">Lock Angle to 45°/90°</span>
+                        <kbd class="shortcut-key">Hold Shift</kbd>
+                    </div>
+                    <div class="shortcut-card">
+                        <span class="shortcut-label">Box Marquee Selection</span>
+                        <kbd class="shortcut-key">Shift + Left Drag</kbd>
+                    </div>
+                    <div class="shortcut-card">
+                        <span class="shortcut-label">Undo / Redo</span>
+                        <kbd class="shortcut-key">Ctrl+Z / Ctrl+Y</kbd>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Route Simulator Modal -->
+        <div class="modal" id="route-modal" role="dialog" aria-modal="true" aria-labelledby="modal-route-title">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content" style="width: 680px; max-height: 85vh; display: flex; flex-direction: column;">
+                <div class="modal-title" id="modal-route-title">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <re-icon icon="compass" size="20" style="color: var(--primary);"></re-icon>
+                        <span>Route Simulator & Turn-by-Turn GPS</span>
+                    </div>
+                    <button class="modal-close" aria-label="Close modal">
+                        <re-icon icon="x" size="16"></re-icon>
+                    </button>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label class="form-label" for="route-start-node">Start Junction / Node</label>
+                        <select id="route-start-node" class="form-input" style="font-family: 'JetBrains Mono', monospace;"></select>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label class="form-label" for="route-target-node">Destination Junction / Node</label>
+                        <select id="route-target-node" class="form-input" style="font-family: 'JetBrains Mono', monospace;"></select>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; background: var(--background); padding: 10px 14px; border-radius: var(--radius-md); border: 1px solid var(--outline);">
+                    <label class="toggle-item" style="cursor: pointer;" title="Allows emergency vehicles (police, fire, EMS) to travel wrong-way and ignore turn restrictions">
+                        <span style="font-weight: 600; color: var(--on-surface);">Emergency Vehicle Priority (Bypass Restrictions)</span>
+                        <input type="checkbox" id="route-emergency-toggle">
+                    </label>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="primary-btn" id="btn-calculate-route">
+                            <re-icon icon="gps" size="15"></re-icon>
+                            <span>Find Route</span>
+                        </button>
+                        <button class="secondary-btn" id="btn-clear-route">
+                            <re-icon icon="x-circle" size="15"></re-icon>
+                            <span>Clear</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Route Metrics Header -->
+                <div id="route-summary-bar" style="display: none; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 12px;">
+                    <div class="metric-card">
+                        <span class="metric-label">Estimated Time</span>
+                        <span class="metric-val" id="route-eta">0:00</span>
+                    </div>
+                    <div class="metric-card">
+                        <span class="metric-label">Total Distance</span>
+                        <span class="metric-val" id="route-dist">0 studs</span>
+                    </div>
+                    <div class="metric-card">
+                        <span class="metric-label">Lanes Traversed</span>
+                        <span class="metric-val" id="route-lane-count">0</span>
+                    </div>
+                </div>
+
+                <!-- Turn-by-Turn GPS Step List -->
+                <div style="flex: 1; overflow-y: auto; background: var(--background); border: 1px solid var(--outline); border-radius: var(--radius-md); padding: 8px;">
+                    <div id="route-instructions-list" class="instructions-list">
+                        <div style="padding: 24px; text-align: center; color: var(--on-surface-variant); font-size: 13px;">
+                            Select a start node and destination node above, then click Find Route.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Network Diagnostics & Cleaner Modal -->
+        <div class="modal" id="diagnostics-modal" role="dialog" aria-modal="true" aria-labelledby="modal-diag-title">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content" style="width: 700px; max-height: 85vh; display: flex; flex-direction: column;">
+                <div class="modal-title" id="modal-diag-title">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <re-icon icon="stethoscope" size="20" style="color: var(--primary);"></re-icon>
+                        <span>Network Diagnostics & Topological Audit</span>
+                    </div>
+                    <button class="modal-close" aria-label="Close modal">
+                        <re-icon icon="x" size="16"></re-icon>
+                    </button>
+                </div>
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 10px;">
+                    <button class="primary-btn" id="btn-run-audit">
+                        <re-icon icon="play" size="15"></re-icon>
+                        <span>Run Audit Scan</span>
+                    </button>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 12px; color: var(--on-surface-variant);">Merge Tolerance:</span>
+                        <input type="number" id="diag-merge-tol" class="form-input" style="width: 70px; padding: 4px 8px; height: 34px;" value="4" min="1" max="20" step="1">
+                        <span style="font-size: 12px; color: var(--on-surface-variant);">studs</span>
+                        <button class="secondary-btn" id="btn-auto-merge" title="Merge duplicate vertices within tolerance">
+                            <re-icon icon="branch-up" size="15"></re-icon>
+                            <span>Fix & Merge Near Vertices</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div id="diag-summary-pills" style="display: flex; gap: 8px; margin-bottom: 12px;">
+                    <div class="diag-badge" id="badge-orphans">0 Disconnected</div>
+                    <div class="diag-badge" id="badge-duplicates">0 Near-Duplicates</div>
+                    <div class="diag-badge" id="badge-deadends">0 Dead Ends</div>
+                </div>
+
+                <div style="flex: 1; overflow-y: auto; background: var(--background); border: 1px solid var(--outline); border-radius: var(--radius-md); padding: 8px;">
+                    <div id="diag-issues-list" class="issues-list">
+                        <div style="padding: 24px; text-align: center; color: var(--on-surface-variant); font-size: 13px;">
+                            Click "Run Audit Scan" to detect topology anomalies, near-duplicate vertices, or disconnected nodes.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Procedural Junction Generator Modal -->
+        <div class="modal" id="generator-modal" role="dialog" aria-modal="true" aria-labelledby="modal-gen-title">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content" style="width: 540px;">
+                <div class="modal-title" id="modal-gen-title">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <re-icon icon="plus-circle" size="20" style="color: var(--primary);"></re-icon>
+                        <span>Procedural Junction Generator</span>
+                    </div>
+                    <button class="modal-close" aria-label="Close modal">
+                        <re-icon icon="x" size="16"></re-icon>
+                    </button>
+                </div>
+
+                <!-- Tabs -->
+                <div class="toggle-pill-group" style="margin-bottom: 14px;">
+                    <button type="button" class="toggle-pill-btn active" id="tab-gen-roundabout">
+                        <re-icon icon="arrows-rotate" size="14"></re-icon>
+                        <span>Roundabout</span>
+                    </button>
+                    <button type="button" class="toggle-pill-btn" id="tab-gen-culdesac">
+                        <re-icon icon="route" size="14"></re-icon>
+                        <span>Cul-de-sac</span>
+                    </button>
+                </div>
+
+                <!-- Roundabout Config -->
+                <div id="gen-roundabout-fields">
+                    <div class="form-group">
+                        <label class="form-label" for="gen-roundabout-radius">Ring Radius (Studs)</label>
+                        <input type="number" id="gen-roundabout-radius" class="form-input" value="35" min="15" max="150" step="5">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="gen-roundabout-arms">Connecting Arms</label>
+                        <input type="number" id="gen-roundabout-arms" class="form-input" value="4" min="2" max="8" step="1">
+                    </div>
+                </div>
+
+                <!-- Cul-de-sac Config -->
+                <div id="gen-culdesac-fields" style="display: none;">
+                    <div class="form-group">
+                        <label class="form-label" for="gen-culdesac-radius">Bulb Radius (Studs)</label>
+                        <input type="number" id="gen-culdesac-radius" class="form-input" value="25" min="10" max="80" step="5">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="gen-culdesac-stem">Stem Length (Studs)</label>
+                        <input type="number" id="gen-culdesac-stem" class="form-input" value="50" min="20" max="200" step="10">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="gen-speed">Speed Limit (MPH)</label>
+                    <input type="number" id="gen-speed" class="form-input" value="25" min="10" max="65" step="5">
+                </div>
+
+                <button class="primary-btn" id="btn-generate-junction" style="width: 100%; margin-top: 10px;">
+                    <re-icon icon="sparkles" size="15"></re-icon>
+                    <span>Generate at Center of View</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Export Modal -->
+        <div class="modal" id="export-modal" role="dialog" aria-modal="true" aria-labelledby="modal-export-title">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content" style="width: 720px;">
+                <div class="modal-title" id="modal-export-title">
+                    <span>Export Road Network Graph</span>
+                    <button class="modal-close" aria-label="Close modal">
+                        <re-icon icon="x" size="16"></re-icon>
+                    </button>
+                </div>
+                <div style="display: flex; gap: 10px; margin-bottom: 8px;">
+                    <button class="primary-btn" id="btn-download-json">
+                        <re-icon icon="file-content" size="15"></re-icon>
+                        <span>Download Graph JSON</span>
+                    </button>
+                    <button class="secondary-btn" id="btn-download-geojson">
+                        <re-icon icon="globe" size="15"></re-icon>
+                        <span>Download GeoJSON</span>
+                    </button>
+                    <button class="secondary-btn" id="btn-download-lua">
+                        <re-icon icon="code" size="15"></re-icon>
+                        <span>Download Roblox Lua</span>
+                    </button>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="export-json-preview">Complete Graph JSON (Nodes & Lanes)</label>
+                    <textarea id="export-json-preview" class="form-input" style="height: 120px; font-family: 'JetBrains Mono', monospace; font-size: 11px;" readonly></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="export-lua-preview">Roblox Vector3 Lua Table (for ERLC integration)</label>
+                    <textarea id="export-lua-preview" class="form-input" style="height: 100px; font-family: 'JetBrains Mono', monospace; font-size: 11px;" readonly></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="export-geojson-preview">GeoJSON Format</label>
+                    <textarea id="export-geojson-preview" class="form-input" style="height: 80px; font-family: 'JetBrains Mono', monospace; font-size: 11px;" readonly></textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ES6 Module Scripts -->
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>
