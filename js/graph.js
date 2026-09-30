@@ -65,6 +65,7 @@ export class RoadGraph {
             this.undoStack.shift();
         }
         this.redoStack = []; // Clear redo on new action
+        console.log(`[RoadGraph:History] Snapshot pushed (undo: ${this.undoStack.length}, redo: 0)`);
         this.notify('history_changed', { canUndo: this.canUndo(), canRedo: this.canRedo() });
     }
 
@@ -82,6 +83,7 @@ export class RoadGraph {
         this.redoStack.push(current);
         const previous = this.undoStack.pop();
         this.deserialize(previous, false);
+        console.log(`[RoadGraph:Undo] Reverted to previous state (undo remaining: ${this.undoStack.length}, redo available: ${this.redoStack.length})`);
         this.notify('history_changed', { canUndo: this.canUndo(), canRedo: this.canRedo() });
         this.notify('graph_mutated', { action: 'undo' });
         return true;
@@ -93,6 +95,7 @@ export class RoadGraph {
         this.undoStack.push(current);
         const next = this.redoStack.pop();
         this.deserialize(next, false);
+        console.log(`[RoadGraph:Redo] Re-applied state (undo available: ${this.undoStack.length}, redo remaining: ${this.redoStack.length})`);
         this.notify('history_changed', { canUndo: this.canUndo(), canRedo: this.canRedo() });
         this.notify('graph_mutated', { action: 'redo' });
         return true;
@@ -103,6 +106,7 @@ export class RoadGraph {
         const nodeId = id || this.generateId('node');
         const node = { id: nodeId, x, y };
         this.nodes.set(nodeId, node);
+        console.log(`[RoadGraph:Node] Created junction node ${nodeId} at (${Math.round(x)}, ${Math.round(y)})`);
         return node;
     }
 
@@ -117,6 +121,34 @@ export class RoadGraph {
             }
         }
         return this.addNode(x, y);
+    }
+
+    moveNode(nodeId, x, y) {
+        const node = this.nodes.get(nodeId);
+        if (!node) return null;
+        node.x = x;
+        node.y = y;
+
+        let attachedCount = 0;
+        // Synchronously update all attached lanes' endpoints
+        for (const lane of this.lanes.values()) {
+            let updated = false;
+            if (lane.startNodeId === nodeId && lane.waypoints && lane.waypoints.length > 0) {
+                lane.waypoints[0].x = x;
+                lane.waypoints[0].y = y;
+                updated = true;
+            }
+            if (lane.endNodeId === nodeId && lane.waypoints && lane.waypoints.length > 0) {
+                lane.waypoints[lane.waypoints.length - 1].x = x;
+                lane.waypoints[lane.waypoints.length - 1].y = y;
+                updated = true;
+            }
+            if (updated) attachedCount++;
+        }
+
+        console.log(`[RoadGraph:Node] Moved node ${nodeId} to (${Math.round(x)}, ${Math.round(y)}) [updated ${attachedCount} attached lane endpoints]`);
+        this.notify('node_updated', { node });
+        return node;
     }
 
     // Lane Operations
@@ -160,6 +192,7 @@ export class RoadGraph {
 
         this.lanes.set(laneId, lane);
         this.cleanupOrphanNodes();
+        console.log(`[RoadGraph:Lane] Created lane ${laneId} "${lane.name || 'unnamed'}" (${lane.waypoints.length} waypoints, speed: ${lane.speedLimit}mph, material: ${lane.material}, oneWay: ${lane.oneWay}, layer: ${lane.layer})`);
         this.notify('lane_created', { lane });
         return lane;
     }
@@ -177,6 +210,7 @@ export class RoadGraph {
         if (!lane) return null;
         this.pushHistory();
         Object.assign(lane, updates);
+        console.log(`[RoadGraph:Lane] Updated lane ${id}:`, updates);
         this.notify('lane_updated', { lane });
         return lane;
     }
@@ -189,13 +223,16 @@ export class RoadGraph {
         this.lanes.delete(id);
 
         // Delete connected connectors
+        let deletedConnectors = 0;
         for (const [connId, conn] of this.connectors.entries()) {
             if (conn.fromLaneId === id || conn.toLaneId === id) {
                 this.connectors.delete(connId);
+                deletedConnectors++;
             }
         }
 
         this.cleanupOrphanNodes();
+        console.log(`[RoadGraph:Lane] Deleted lane ${id} (removed ${deletedConnectors} connectors)`);
         this.notify('lane_deleted', { laneId: id });
         return true;
     }
@@ -213,6 +250,49 @@ export class RoadGraph {
         lane.startNodeId = lane.endNodeId;
         lane.endNodeId = temp;
 
+        console.log(`[RoadGraph:Lane] Reversed lane direction for ${id}`);
+        this.notify('lane_updated', { lane });
+        return true;
+    }
+
+    insertWaypoint(laneId, index, point) {
+        const lane = this.lanes.get(laneId);
+        if (!lane || !point) return false;
+        this.pushHistory();
+
+        const insertIdx = Math.max(1, Math.min(lane.waypoints.length - 1, index));
+        lane.waypoints.splice(insertIdx, 0, { x: point.x, y: point.y });
+
+        console.log(`[RoadGraph:Waypoint] Inserted waypoint into ${laneId} at index ${insertIdx} (${Math.round(point.x)}, ${Math.round(point.y)})`);
+        this.notify('lane_updated', { lane });
+        return true;
+    }
+
+    removeWaypoint(laneId, index) {
+        const lane = this.lanes.get(laneId);
+        if (!lane) return false;
+        if (lane.waypoints.length <= 2) {
+            throw new Error("A lane must have at least 2 points.");
+        }
+        this.pushHistory();
+
+        if (index === 0) {
+            lane.waypoints.splice(0, 1);
+            const newStart = lane.waypoints[0];
+            const newStartNode = this.findOrCreateNodeAt(newStart.x, newStart.y, 8);
+            lane.startNodeId = newStartNode.id;
+            this.cleanupOrphanNodes();
+        } else if (index === lane.waypoints.length - 1) {
+            lane.waypoints.splice(lane.waypoints.length - 1, 1);
+            const newEnd = lane.waypoints[lane.waypoints.length - 1];
+            const newEndNode = this.findOrCreateNodeAt(newEnd.x, newEnd.y, 8);
+            lane.endNodeId = newEndNode.id;
+            this.cleanupOrphanNodes();
+        } else {
+            lane.waypoints.splice(index, 1);
+        }
+
+        console.log(`[RoadGraph:Waypoint] Removed waypoint index ${index} from ${laneId} (remaining: ${lane.waypoints.length} points)`);
         this.notify('lane_updated', { lane });
         return true;
     }
@@ -249,6 +329,7 @@ export class RoadGraph {
         });
 
         this.notify('lane_split', { originalLane: lane, newLane });
+        console.log(`[RoadGraph:Lane] Split lane ${laneId} at waypoint index ${waypointIndex} into new lane ${newLane.id}`);
         return { lane1: lane, lane2: newLane };
     }
 
@@ -259,13 +340,15 @@ export class RoadGraph {
         const offsetPoints = offsetPolyline(sourceLane.waypoints, offsetDistance, reverseDirection);
         if (offsetPoints.length < 2) return null;
 
-        return this.createLane({
+        const dupLane = this.createLane({
             name: sourceLane.name,
             speedLimit: sourceLane.speedLimit,
             material: sourceLane.material || 'paved',
             oneWay: sourceLane.oneWay,
             waypoints: offsetPoints
         });
+        console.log(`[RoadGraph:Lane] Duplicated parallel lane from ${laneId} -> new lane ${dupLane.id} (offset: ${offsetDistance}px, reversed: ${reverseDirection})`);
+        return dupLane;
     }
 
     // Connectors / Lane Changes / Turn Restrictions
@@ -276,6 +359,7 @@ export class RoadGraph {
         const id = this.generateId('conn');
         const conn = { id, fromLaneId, toLaneId, type, allowed };
         this.connectors.set(id, conn);
+        console.log(`[RoadGraph:Connector] Added connector ${id} (${fromLaneId} -> ${toLaneId}, type: ${type})`);
         this.notify('connector_added', { connector: conn });
         return conn;
     }
@@ -284,6 +368,7 @@ export class RoadGraph {
         if (this.connectors.has(id)) {
             this.pushHistory();
             this.connectors.delete(id);
+            console.log(`[RoadGraph:Connector] Removed connector ${id}`);
             this.notify('connector_removed', { id });
             return true;
         }
@@ -373,6 +458,7 @@ export class RoadGraph {
             this.turnRestrictions.set(key, false);
         }
         this.notify('turn_restriction_changed', { nodeId, fromLaneId, toLaneId, allowed: isAllowed });
+        console.log(`[RoadGraph:TurnRestriction] Node ${nodeId}: Lane ${fromLaneId} -> Lane ${toLaneId} allowed=${isAllowed}`);
     }
 
     isTurnAllowed(nodeId, fromLaneId, toLaneId) {
@@ -388,8 +474,10 @@ export class RoadGraph {
         const pps = this.calibration.pixelsPerStud || 2.0;
 
         if (!this.nodes.has(startNodeId) || !this.nodes.has(targetNodeId)) {
+            console.warn(`[RoadGraph:Pathfinding] Node not found: start=${startNodeId}, target=${targetNodeId}`);
             return { found: false, error: 'Start or target node not found.' };
         }
+        console.log(`[RoadGraph:Pathfinding] Route search: ${startNodeId} -> ${targetNodeId} (emergency: ${emergency})`);
 
         if (startNodeId === targetNodeId) {
             const startNode = this.nodes.get(startNodeId);
@@ -562,6 +650,7 @@ export class RoadGraph {
             streetName: pathSegments[pathSegments.length - 1]?.lane?.name || ''
         });
 
+        console.log(`[RoadGraph:Pathfinding] Route solved: ${pathNodes.length} nodes, ${pathLanes.length} lanes, ${Math.round(totalPixelLen / pps)} studs (~${Math.round(totalSeconds)}s)`);
         return {
             found: true,
             nodes: pathNodes,
@@ -623,6 +712,7 @@ export class RoadGraph {
             }
         }
 
+        console.log(`[RoadGraph:Diagnostics] Audit completed: found ${issues.length} potential issue(s)`);
         return issues;
     }
 
@@ -668,6 +758,7 @@ export class RoadGraph {
         }
 
         this.cleanupOrphanNodes();
+        console.log(`[RoadGraph:Diagnostics] Merged ${merged} near-duplicate node(s) within ${toleranceStuds} studs tolerance`);
         this.notify('nodes_merged', { mergedCount: merged });
         return { mergedCount: merged };
     }
@@ -713,6 +804,7 @@ export class RoadGraph {
             armLanes.push(armLane);
         }
 
+        console.log(`[RoadGraph:Procedural] Generated Roundabout at (${Math.round(center.x)}, ${Math.round(center.y)}) with ${numArms} arms, radius: ${radiusStuds} studs`);
         this.notify('roundabout_created', { ringLane, armLanes });
         return { ringLane, armLanes };
     }
@@ -751,6 +843,7 @@ export class RoadGraph {
             waypoints: bulbPts
         });
 
+        console.log(`[RoadGraph:Procedural] Generated Cul-de-sac at (${Math.round(center.x)}, ${Math.round(center.y)}) stem: ${stemLengthStuds} studs, bulb: ${bulbRadiusStuds} studs`);
         this.notify('culdesac_created', { stemLane, bulbLane });
         return { stemLane, bulbLane };
     }
@@ -782,6 +875,7 @@ export class RoadGraph {
             }
         }
 
+        console.log(`[RoadGraph:Selection] Box selection matched ${selectedLanes.length} lanes and ${selectedNodes.length} nodes:`, { lanes: selectedLanes, nodes: selectedNodes });
         return { laneIds: selectedLanes, nodeIds: selectedNodes };
     }
 
@@ -838,9 +932,11 @@ export class RoadGraph {
     // Clear Graph
     clear() {
         this.pushHistory();
+        const prevCounts = { nodes: this.nodes.size, lanes: this.lanes.size, connectors: this.connectors.size };
         this.nodes.clear();
         this.lanes.clear();
         this.connectors.clear();
+        console.log(`[RoadGraph:Clear] Network cleared (removed ${prevCounts.lanes} lanes, ${prevCounts.nodes} nodes, ${prevCounts.connectors} connectors)`);
         this.notify('graph_cleared', {});
     }
 
@@ -886,6 +982,7 @@ export class RoadGraph {
         }
 
         this.cleanupOrphanNodes();
+        console.log(`[RoadGraph:Load] Deserialized graph: ${this.lanes.size} lanes, ${this.nodes.size} nodes, ${this.connectors.size} connectors`);
         this.notify('graph_loaded', {});
     }
 
@@ -935,6 +1032,7 @@ export class RoadGraph {
             });
         }
 
+        console.log(`[RoadGraph:Export] Exported GeoJSON FeatureCollection with ${features.length} features`);
         return {
             type: 'FeatureCollection',
             generator: 'ERLC Road Network Studio',
@@ -946,6 +1044,7 @@ export class RoadGraph {
     // Export to Roblox Lua Table format
     toRobloxLua() {
         const pps = this.calibration.pixelsPerStud || 2.0;
+        console.log(`[RoadGraph:Export] Generating Roblox Lua table for ${this.nodes.size} nodes and ${this.lanes.size} lanes`);
         let lua = `-- ERLC Road Network Graph generated by Road Network Studio\n`;
         lua += `local RoadNetwork = {\n`;
         lua += `    Nodes = {\n`;

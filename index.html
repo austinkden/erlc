@@ -14,19 +14,6 @@
         <!-- Interactive Canvas Area -->
         <main id="canvas-wrapper">
             <canvas id="map-canvas"></canvas>
-
-            <!-- Floating Minimap Card -->
-            <aside class="minimap-card" id="minimap-card" aria-label="Overview Minimap">
-                <div class="minimap-header">
-                    <span class="minimap-title">Minimap</span>
-                    <button class="icon-subtle" id="minimap-toggle" title="Toggle Minimap" aria-label="Toggle Minimap">
-                        <re-icon icon="chevron-down" size="14"></re-icon>
-                    </button>
-                </div>
-                <div class="minimap-body" id="minimap-body">
-                    <canvas id="minimap-canvas" width="180" height="180"></canvas>
-                </div>
-            </aside>
         </main>
 
         <!-- Top Header / HUD -->
@@ -222,6 +209,15 @@
                             <input type="checkbox" id="inspector-smooth">
                         </label>
                     </div>
+
+                    <!-- Waypoints Management -->
+                    <div class="form-group" id="inspector-waypoints-group">
+                        <div class="form-label-row">
+                            <label class="form-label">Waypoints</label>
+                            <span class="subtle-hint">Double-click lane to add</span>
+                        </div>
+                        <div class="waypoints-list-container" id="inspector-waypoints-list"></div>
+                    </div>
                 </div>
 
                 <!-- Node Specific Fields Container -->
@@ -229,6 +225,16 @@
                     <div class="form-group">
                         <label class="form-label" for="inspector-node-id-display">Node ID</label>
                         <input type="text" id="inspector-node-id-display" class="form-input" style="font-family: 'JetBrains Mono', monospace;" readonly>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                        <div class="form-group">
+                            <label class="form-label" for="inspector-node-x">Position X</label>
+                            <input type="number" id="inspector-node-x" class="form-input" step="1">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="inspector-node-y">Position Y</label>
+                            <input type="number" id="inspector-node-y" class="form-input" step="1">
+                        </div>
                     </div>
                 </div>
 

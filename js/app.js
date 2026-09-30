@@ -4,7 +4,7 @@
  */
 import { RoadGraph } from './graph.js';
 import { RoadRenderer } from './renderer.js';
-import { snapAngle, dist } from './math.js';
+import { snapAngle, dist, projectPointOnPolyline } from './math.js';
 
 class RoadApp {
     constructor() {
@@ -44,14 +44,15 @@ class RoadApp {
         this.isMarqueeSelecting = false;
         this.marqueeStart = null;
 
-        // Minimap canvas
-        this.minimapCanvas = document.getElementById('minimap-canvas');
-        this.renderer.onRender = () => this.updateMinimap();
+        // Node dragging state
+        this.isDraggingNode = false;
+        this.draggedNodeId = null;
 
         this.init();
     }
 
     async init() {
+        console.log('[RoadApp:Init] Initializing Road Network Studio...');
         this.setupEventListeners();
         this.setupUI();
         this.setupKeyboardShortcuts();
@@ -66,6 +67,7 @@ class RoadApp {
         // Load map background images
         await this.renderer.loadImages();
         this.updateStats();
+        console.log('[RoadApp:Init] Road Network Studio ready! Default tool: ' + this.currentTool);
     }
 
     setupGraphSubscription() {
@@ -85,8 +87,10 @@ class RoadApp {
             this.finishDrawing();
         }
 
+        const prevTool = this.currentTool;
         this.currentTool = tool;
         this.connectSourceLaneId = null;
+        console.log(`[RoadApp:Tool] Active tool changed: ${prevTool} -> ${tool}`);
 
         // Update UI buttons
         document.querySelectorAll('.tool-btn').forEach(btn => {
@@ -137,6 +141,7 @@ class RoadApp {
                 this.isMarqueeSelecting = true;
                 this.marqueeStart = world;
                 this.renderer.marqueeBox = { startX: world.x, startY: world.y, endX: world.x, endY: world.y };
+                console.log(`[RoadApp:Select] Started marquee box selection at (${Math.round(world.x)}, ${Math.round(world.y)})`);
                 this.renderer.render();
                 e.preventDefault();
                 return;
@@ -179,18 +184,30 @@ class RoadApp {
                 return;
             }
 
+            // Handle Dragging Node
+            if (this.isDraggingNode && this.draggedNodeId) {
+                this.graph.moveNode(this.draggedNodeId, world.x, world.y);
+                const countBadge = document.getElementById('inspector-waypoints-count');
+                if (countBadge) countBadge.textContent = `Pos: (${Math.round(world.x)}, ${Math.round(world.y)})`;
+                const nodeX = document.getElementById('inspector-node-x');
+                const nodeY = document.getElementById('inspector-node-y');
+                if (nodeX) nodeX.value = Math.round(world.x);
+                if (nodeY) nodeY.value = Math.round(world.y);
+                canvas.style.cursor = 'move';
+                this.renderer.render();
+                return;
+            }
+
             // Handle Dragging Waypoint Handle
             if (this.isDraggingHandle && this.draggedLaneId) {
                 const lane = this.graph.lanes.get(this.draggedLaneId);
                 if (lane && lane.waypoints[this.draggedHandleIndex]) {
                     lane.waypoints[this.draggedHandleIndex] = { x: world.x, y: world.y };
-                    // If moving end or start node, update node position
+                    // If moving end or start node, update all connected lanes via moveNode
                     if (this.draggedHandleIndex === 0 && lane.startNodeId) {
-                        const node = this.graph.nodes.get(lane.startNodeId);
-                        if (node) { node.x = world.x; node.y = world.y; }
+                        this.graph.moveNode(lane.startNodeId, world.x, world.y);
                     } else if (this.draggedHandleIndex === lane.waypoints.length - 1 && lane.endNodeId) {
-                        const node = this.graph.nodes.get(lane.endNodeId);
-                        if (node) { node.x = world.x; node.y = world.y; }
+                        this.graph.moveNode(lane.endNodeId, world.x, world.y);
                     }
                     this.renderer.render();
                     return;
@@ -212,6 +229,26 @@ class RoadApp {
                 } else {
                     this.renderer.hoveredLaneId = null;
                     this.renderer.hoveredNodeId = null;
+                }
+            }
+
+            // Cursor styling in select mode
+            if (this.currentTool === 'select' && !this.isPanning && !this.isSpacePressed && !this.isMarqueeSelecting) {
+                if (this.isDraggingNode || (snap && snap.type === 'node')) {
+                    canvas.style.cursor = 'move';
+                } else if (this.renderer.selectedNodeId) {
+                    const selNode = this.graph.nodes.get(this.renderer.selectedNodeId);
+                    if (selNode && dist(world, selNode) <= (16 / this.renderer.scale)) {
+                        canvas.style.cursor = 'move';
+                    } else if (snap && snap.type === 'lane') {
+                        canvas.style.cursor = 'pointer';
+                    } else {
+                        canvas.style.cursor = 'default';
+                    }
+                } else if (snap && snap.type === 'lane') {
+                    canvas.style.cursor = 'pointer';
+                } else {
+                    canvas.style.cursor = 'default';
                 }
             }
 
@@ -240,6 +277,7 @@ class RoadApp {
                         const { laneIds, nodeIds } = this.graph.selectByBox({ minX, minY, maxX, maxY });
                         this.renderer.selectedLaneIds = new Set(laneIds);
                         this.renderer.selectedNodeIds = new Set(nodeIds);
+                        console.log(`[RoadApp:Select] Finished marquee box selection: ${laneIds.length} lane(s), ${nodeIds.length} node(s)`);
 
                         if (laneIds.length === 1 && nodeIds.length === 0) {
                             this.selectLane(laneIds[0]);
@@ -255,7 +293,17 @@ class RoadApp {
                 this.renderer.render();
             }
 
+            if (this.isDraggingNode) {
+                console.log(`[RoadApp:Drag] Completed dragging node ${this.draggedNodeId}`);
+                this.isDraggingNode = false;
+                this.draggedNodeId = null;
+                this.graph.pushHistory();
+                this.saveAutosave();
+                this.renderer.render();
+            }
+
             if (this.isDraggingHandle) {
+                console.log(`[RoadApp:Drag] Completed dragging waypoint handle #${this.draggedHandleIndex + 1} of lane ${this.draggedLaneId}`);
                 this.isDraggingHandle = false;
                 this.draggedHandleIndex = -1;
                 this.draggedLaneId = null;
@@ -276,6 +324,38 @@ class RoadApp {
             this.renderer.zoomAt(sx, sy, zoomFactor);
             this.updateZoomStatus();
         }, { passive: false });
+
+        // Double-click to insert waypoint on a lane in Select mode
+        canvas.addEventListener('dblclick', (e) => {
+            if (this.currentTool !== 'select') return;
+            const rect = canvas.getBoundingClientRect();
+            const sx = e.clientX - rect.left;
+            const sy = e.clientY - rect.top;
+            const world = this.renderer.screenToWorld(sx, sy);
+
+            let targetLane = null;
+            if (this.renderer.selectedLaneId) {
+                targetLane = this.graph.lanes.get(this.renderer.selectedLaneId);
+            }
+            if (!targetLane) {
+                const snap = this.graph.findSnapTarget(world, 20 / this.renderer.scale);
+                if (snap && snap.type === 'lane') {
+                    targetLane = snap.lane;
+                }
+            }
+
+            if (targetLane) {
+                const res = projectPointOnPolyline(world, targetLane.waypoints);
+                if (res && res.dist <= (22 / this.renderer.scale)) {
+                    console.log(`[RoadApp:Waypoint] Double-click added waypoint into ${targetLane.id} at index ${res.segmentIndex + 1}`);
+                    this.graph.insertWaypoint(targetLane.id, res.segmentIndex + 1, res.point);
+                    this.selectLane(targetLane.id);
+                    this.saveAutosave();
+                    this.renderer.render();
+                    this.showToast('Added waypoint to road', 'success');
+                }
+            }
+        });
     }
 
     handleLeftClick(sx, sy, e) {
@@ -311,6 +391,7 @@ class RoadApp {
                 this.drawingWaypoints.push(pointToPlace);
                 this.drawingStartNodeId = targetNodeId;
                 this.renderer.activeDrawingWaypoints = this.drawingWaypoints;
+                console.log(`[RoadApp:Draw] Started drawing lane at (${Math.round(pointToPlace.x)}, ${Math.round(pointToPlace.y)})` + (targetNodeId ? ` (snapped to start node ${targetNodeId})` : ''));
                 this.renderer.render();
                 return;
             }
@@ -322,16 +403,31 @@ class RoadApp {
             // Add waypoint
             this.drawingWaypoints.push(pointToPlace);
             this.renderer.activeDrawingWaypoints = this.drawingWaypoints;
+            console.log(`[RoadApp:Draw] Added waypoint #${this.drawingWaypoints.length} at (${Math.round(pointToPlace.x)}, ${Math.round(pointToPlace.y)})`);
 
             // If clicking on an existing node (that is not the very first node of this lane), finish lane automatically!
             if (targetNodeId && targetNodeId !== this.drawingStartNodeId && this.drawingWaypoints.length >= 2) {
+                console.log(`[RoadApp:Draw] Auto-connecting lane to existing junction node ${targetNodeId}`);
                 this.finishDrawing(targetNodeId);
                 return;
             }
 
             this.renderer.render();
         } else if (this.currentTool === 'select') {
-            // Check if clicking a waypoint handle on the currently selected lane
+            // 1. Check if clicking on the currently selected node (or within grab radius)
+            if (this.renderer.selectedNodeId) {
+                const selNode = this.graph.nodes.get(this.renderer.selectedNodeId);
+                const nodeThreshold = 16 / this.renderer.scale;
+                if (selNode && dist(world, selNode) <= nodeThreshold) {
+                    this.isDraggingNode = true;
+                    this.draggedNodeId = selNode.id;
+                    this.canvas.style.cursor = 'move';
+                    console.log(`[RoadApp:Drag] Started dragging junction node ${selNode.id}`);
+                    return;
+                }
+            }
+
+            // 2. Check if clicking a waypoint handle on the currently selected lane
             if (this.renderer.selectedLaneId) {
                 const lane = this.graph.lanes.get(this.renderer.selectedLaneId);
                 if (lane) {
@@ -341,15 +437,21 @@ class RoadApp {
                             this.isDraggingHandle = true;
                             this.draggedHandleIndex = i;
                             this.draggedLaneId = lane.id;
+                            console.log(`[RoadApp:Drag] Started dragging waypoint handle #${i + 1} of lane ${lane.id}`);
                             return;
                         }
                     }
                 }
             }
 
-            // Select node or lane
+            // 3. Select node (and start dragging immediately) or lane
             if (snap && snap.type === 'node') {
                 this.selectNode(snap.node.id);
+                this.isDraggingNode = true;
+                this.draggedNodeId = snap.node.id;
+                this.canvas.style.cursor = 'move';
+                console.log(`[RoadApp:Drag] Selected & started dragging node ${snap.node.id}`);
+                return;
             } else if (snap && snap.type === 'lane') {
                 this.selectLane(snap.lane.id);
             } else {
@@ -359,8 +461,10 @@ class RoadApp {
             if (snap && snap.type === 'lane') {
                 if (!this.connectSourceLaneId) {
                     this.connectSourceLaneId = snap.lane.id;
+                    console.log(`[RoadApp:Connect] Selected source lane: ${snap.lane.id}`);
                     this.showToast(`Selected source lane: ${snap.lane.name}. Now click target lane.`, 'info');
                 } else if (this.connectSourceLaneId !== snap.lane.id) {
+                    console.log(`[RoadApp:Connect] Connecting ${this.connectSourceLaneId} -> ${snap.lane.id}`);
                     const conn = this.graph.addConnector(this.connectSourceLaneId, snap.lane.id, 'lane_change', true);
                     this.showToast('Lane change connector created!', 'success');
                     this.connectSourceLaneId = null;
@@ -389,7 +493,16 @@ class RoadApp {
         if (snap) {
             if (snap.type === 'lane') {
                 this.selectLane(snap.lane.id);
-                this.openContextMenu(e.clientX, e.clientY, snap.lane);
+                // Check if right-clicked on an existing waypoint handle
+                let clickedWaypointIndex = -1;
+                const handleThreshold = 14 / this.renderer.scale;
+                for (let i = 0; i < snap.lane.waypoints.length; i++) {
+                    if (dist(world, snap.lane.waypoints[i]) <= handleThreshold) {
+                        clickedWaypointIndex = i;
+                        break;
+                    }
+                }
+                this.openContextMenu(e.clientX, e.clientY, snap.lane, world, clickedWaypointIndex);
             } else if (snap.type === 'node') {
                 this.selectNode(snap.node.id);
                 this.openNodeContextMenu(e.clientX, e.clientY, snap.node);
@@ -419,9 +532,11 @@ class RoadApp {
             });
 
             const displayName = lane.name ? `"${lane.name}"` : 'lane';
+            console.log(`[RoadApp:Draw] Successfully completed drawing lane ${lane.id} (${lane.waypoints.length} points)`);
             this.showToast(`Created ${displayName} with ${lane.waypoints.length} waypoints`, 'success');
             this.selectLane(lane.id);
         } catch (err) {
+            console.error('[RoadApp:Draw] Error creating lane:', err);
             this.showToast(err.message, 'error');
         }
 
@@ -432,6 +547,7 @@ class RoadApp {
     }
 
     cancelDrawing() {
+        console.log(`[RoadApp:Draw] Cancelled drawing in-progress polyline (${this.drawingWaypoints.length} points discarded)`);
         this.drawingWaypoints = [];
         this.drawingStartNodeId = null;
         this.renderer.activeDrawingWaypoints = [];
@@ -445,6 +561,7 @@ class RoadApp {
         this.renderer.selectedNodeId = null;
         this.renderer.selectedNodeIds.clear();
         const lane = this.graph.lanes.get(laneId);
+        console.log(`[RoadApp:Select] Selected lane ${laneId} ("${lane?.name || 'unnamed'}")`);
         this.showInspectorForLane(lane);
         this.renderer.render();
     }
@@ -455,11 +572,15 @@ class RoadApp {
         this.renderer.selectedLaneId = null;
         this.renderer.selectedLaneIds.clear();
         const node = this.graph.nodes.get(nodeId);
+        console.log(`[RoadApp:Select] Selected junction node ${nodeId} at (${Math.round(node?.x || 0)}, ${Math.round(node?.y || 0)})`);
         this.showInspectorForNode(node);
         this.renderer.render();
     }
 
     clearSelection() {
+        if (this.renderer.selectedLaneId || this.renderer.selectedNodeId || this.renderer.selectedLaneIds.size > 0 || this.renderer.selectedNodeIds.size > 0) {
+            console.log('[RoadApp:Select] Cleared active selection');
+        }
         this.renderer.selectedLaneId = null;
         this.renderer.selectedNodeId = null;
         this.renderer.selectedLaneIds.clear();
@@ -473,6 +594,7 @@ class RoadApp {
         if (!panel) return;
         panel.classList.add('active');
 
+        console.log(`[RoadApp:Inspector] Multi-selection inspector active (${laneIds.length} lanes, ${nodeIds.length} nodes)`);
         document.getElementById('inspector-title').textContent = 'Batch Selection';
         document.getElementById('inspector-waypoints-count').textContent = `${laneIds.length} lanes, ${nodeIds.length} nodes`;
         
@@ -499,6 +621,7 @@ class RoadApp {
         }
 
         const offset = offsetDistance !== null ? offsetDistance : this.parallelOffsetDistance;
+        console.log(`[RoadApp:Lane] Duplicating lane ${laneId} with offset ${offset}px (reverse: ${reverse})`);
         const newLane = this.graph.duplicateParallelLane(laneId, offset, reverse);
 
         if (newLane) {
@@ -512,6 +635,7 @@ class RoadApp {
     reverseSelectedLane() {
         const laneId = this.renderer.selectedLaneId;
         if (!laneId) return;
+        console.log(`[RoadApp:Lane] Reversing lane ${laneId}`);
         this.graph.reverseLane(laneId);
         this.showToast('Reversed lane direction', 'success');
         const lane = this.graph.lanes.get(laneId);
@@ -520,6 +644,7 @@ class RoadApp {
 
     deleteSelected() {
         if (this.renderer.selectedLaneId) {
+            console.log(`[RoadApp:Delete] Deleting selected lane ${this.renderer.selectedLaneId}`);
             this.graph.deleteLane(this.renderer.selectedLaneId);
             this.clearSelection();
             this.showToast('Lane deleted', 'info');
@@ -532,6 +657,7 @@ class RoadApp {
                     attachedLanes.push(lane.id);
                 }
             }
+            console.log(`[RoadApp:Delete] Deleting selected node ${nodeId} and ${attachedLanes.length} attached lane(s)`);
             attachedLanes.forEach(id => this.graph.deleteLane(id));
             this.clearSelection();
             this.showToast(`Node and ${attachedLanes.length} attached lane(s) deleted`, 'info');
@@ -559,32 +685,39 @@ class RoadApp {
 
             // Tool switching
             if (e.key.toLowerCase() === 'r') {
+                console.log('[RoadApp:Shortcut] Pressed R -> Switch to Draw Tool');
                 this.setTool('draw');
             } else if (e.key.toLowerCase() === 's' || e.key.toLowerCase() === 'v') {
+                console.log('[RoadApp:Shortcut] Pressed S/V -> Switch to Select Tool');
                 this.setTool('select');
             } else if (e.key.toLowerCase() === 'c') {
+                console.log('[RoadApp:Shortcut] Pressed C -> Switch to Connect Tool');
                 this.setTool('connect');
             }
 
             // Parallel duplicate shortcut
             if (e.key.toLowerCase() === 'd') {
                 e.preventDefault();
+                console.log('[RoadApp:Shortcut] Pressed D -> Duplicate Parallel Lane');
                 this.duplicateSelectedLane(24, false);
             }
 
             // Tab toggles between blank and postals map
             if (e.key === 'Tab') {
                 e.preventDefault();
+                console.log('[RoadApp:Shortcut] Pressed Tab -> Toggle Map Layer');
                 this.toggleMapLayer();
             }
 
             // Delete / Backspace
             if (e.key === 'Delete' || e.key === 'Backspace') {
+                console.log('[RoadApp:Shortcut] Pressed Delete/Backspace');
                 this.deleteSelected();
             }
 
             // Escape
             if (e.key === 'Escape') {
+                console.log('[RoadApp:Shortcut] Pressed Escape');
                 if (this.currentTool === 'draw' && this.drawingWaypoints.length > 0) {
                     this.cancelDrawing();
                 } else {
@@ -595,11 +728,13 @@ class RoadApp {
 
             // Fit view (F)
             if (e.key.toLowerCase() === 'f') {
+                console.log('[RoadApp:Shortcut] Pressed F -> Fit View');
                 this.renderer.fitView();
             }
 
             // Help Modal (H or ?)
             if (e.key.toLowerCase() === 'h' || e.key === '?') {
+                console.log('[RoadApp:Shortcut] Pressed H -> Open Shortcuts Modal');
                 this.toggleModal('shortcuts-modal');
             }
 
@@ -608,14 +743,17 @@ class RoadApp {
                 if (e.key.toLowerCase() === 'z') {
                     e.preventDefault();
                     if (e.shiftKey) {
+                        console.log('[RoadApp:Shortcut] Pressed Ctrl+Shift+Z -> Redo');
                         this.graph.redo();
                         this.showToast('Redo', 'info');
                     } else {
+                        console.log('[RoadApp:Shortcut] Pressed Ctrl+Z -> Undo');
                         this.graph.undo();
                         this.showToast('Undo', 'info');
                     }
                 } else if (e.key.toLowerCase() === 'y') {
                     e.preventDefault();
+                    console.log('[RoadApp:Shortcut] Pressed Ctrl+Y -> Redo');
                     this.graph.redo();
                     this.showToast('Redo', 'info');
                 }
@@ -648,6 +786,7 @@ class RoadApp {
             this.showToast('Background: Clean Map (Blank)', 'info');
         }
 
+        console.log(`[RoadApp:Layers] Postals map opacity cycled to ${(this.renderer.postalsOpacity * 100).toFixed(0)}%`);
         const slider = document.getElementById('postals-slider');
         if (slider) slider.value = this.renderer.postalsOpacity * 100;
         this.renderer.render();
@@ -666,6 +805,7 @@ class RoadApp {
         if (slider) {
             slider.addEventListener('input', (e) => {
                 this.renderer.postalsOpacity = parseFloat(e.target.value) / 100;
+                console.log(`[RoadApp:Layers] Postals slider opacity set to ${(this.renderer.postalsOpacity * 100).toFixed(0)}%`);
                 this.renderer.render();
             });
         }
@@ -673,24 +813,37 @@ class RoadApp {
         // Map Layer Toggles
         document.getElementById('toggle-arrows')?.addEventListener('change', (e) => {
             this.renderer.showArrows = e.target.checked;
+            console.log(`[RoadApp:Layers] Directional arrows: ${e.target.checked}`);
             this.renderer.render();
         });
         document.getElementById('toggle-nodes')?.addEventListener('change', (e) => {
             this.renderer.showNodes = e.target.checked;
+            console.log(`[RoadApp:Layers] Junction nodes: ${e.target.checked}`);
             this.renderer.render();
         });
         document.getElementById('toggle-grid')?.addEventListener('change', (e) => {
             this.renderer.showGrid = e.target.checked;
+            console.log(`[RoadApp:Layers] Background grid: ${e.target.checked}`);
             this.renderer.render();
         });
 
         // Action Buttons
-        document.getElementById('btn-undo')?.addEventListener('click', () => this.graph.undo());
-        document.getElementById('btn-redo')?.addEventListener('click', () => this.graph.redo());
-        document.getElementById('btn-fit')?.addEventListener('click', () => this.renderer.fitView());
+        document.getElementById('btn-undo')?.addEventListener('click', () => {
+            console.log('[RoadApp:Action] Undo clicked');
+            this.graph.undo();
+        });
+        document.getElementById('btn-redo')?.addEventListener('click', () => {
+            console.log('[RoadApp:Action] Redo clicked');
+            this.graph.redo();
+        });
+        document.getElementById('btn-fit')?.addEventListener('click', () => {
+            console.log('[RoadApp:Action] Fit view clicked');
+            this.renderer.fitView();
+        });
         document.getElementById('btn-export')?.addEventListener('click', () => this.openExportModal());
         document.getElementById('btn-import')?.addEventListener('click', () => this.triggerImport());
         document.getElementById('btn-clear')?.addEventListener('click', () => {
+            console.log('[RoadApp:Action] Clear network requested');
             if (confirm('Are you sure you want to clear the entire road network?')) {
                 this.graph.clear();
                 this.clearSelection();
@@ -709,6 +862,7 @@ class RoadApp {
         // Inspector Form Controls
         document.getElementById('inspector-name')?.addEventListener('input', (e) => {
             this.activeStreetName = e.target.value;
+            console.log(`[RoadApp:Inspector] Street name input: "${e.target.value}"`);
             if (this.renderer.selectedLaneId) {
                 this.graph.updateLane(this.renderer.selectedLaneId, { name: e.target.value });
             }
@@ -717,6 +871,7 @@ class RoadApp {
             const spd = parseInt(e.target.value, 10);
             if (!isNaN(spd)) {
                 this.activeSpeedLimit = spd;
+                console.log(`[RoadApp:Inspector] Speed limit input: ${spd} MPH`);
                 if (this.renderer.selectedLaneId) {
                     this.graph.updateLane(this.renderer.selectedLaneId, { speedLimit: spd });
                 }
@@ -729,6 +884,7 @@ class RoadApp {
         // Traffic Flow (One-Way / Two-Way) Toggle
         const setOneWay = (isOneWay) => {
             this.activeOneWay = isOneWay;
+            console.log(`[RoadApp:Inspector] Traffic flow toggled: ${isOneWay ? 'One-Way' : 'Two-Way'}`);
             document.getElementById('btn-flow-oneway')?.classList.toggle('active', isOneWay);
             document.getElementById('btn-flow-twoway')?.classList.toggle('active', !isOneWay);
             if (this.renderer.selectedLaneId) {
@@ -744,6 +900,23 @@ class RoadApp {
         document.getElementById('inspector-reverse')?.addEventListener('click', () => this.reverseSelectedLane());
         document.getElementById('inspector-delete')?.addEventListener('click', () => this.deleteSelected());
 
+        const handleNodeCoordinateChange = () => {
+            if (!this.renderer.selectedNodeId) return;
+            const xVal = parseFloat(document.getElementById('inspector-node-x')?.value);
+            const yVal = parseFloat(document.getElementById('inspector-node-y')?.value);
+            if (!isNaN(xVal) && !isNaN(yVal)) {
+                console.log(`[RoadApp:Inspector] Setting node ${this.renderer.selectedNodeId} position: (${xVal}, ${yVal})`);
+                this.graph.pushHistory();
+                this.graph.moveNode(this.renderer.selectedNodeId, xVal, yVal);
+                this.saveAutosave();
+                this.renderer.render();
+                const countBadge = document.getElementById('inspector-waypoints-count');
+                if (countBadge) countBadge.textContent = `Pos: (${Math.round(xVal)}, ${Math.round(yVal)})`;
+            }
+        };
+        document.getElementById('inspector-node-x')?.addEventListener('change', handleNodeCoordinateChange);
+        document.getElementById('inspector-node-y')?.addEventListener('change', handleNodeCoordinateChange);
+
         // Setup File Upload Input for Import
         const fileInput = document.createElement('input');
         fileInput.type = 'file';
@@ -752,12 +925,14 @@ class RoadApp {
         fileInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (!file) return;
+            console.log(`[RoadApp:Import] Selected file: ${file.name} (${file.size} bytes)`);
             const reader = new FileReader();
             reader.onload = (event) => {
                 try {
                     this.graph.deserialize(event.target.result);
                     this.showToast('Road network imported successfully!', 'success');
                 } catch (err) {
+                    console.error('[RoadApp:Import] Failed to parse JSON:', err);
                     this.showToast('Failed to import JSON: ' + err.message, 'error');
                 }
             };
@@ -782,50 +957,10 @@ class RoadApp {
         document.getElementById('tab-gen-culdesac')?.addEventListener('click', () => this.switchGeneratorTab('culdesac'));
         document.getElementById('btn-generate-junction')?.addEventListener('click', () => this.generateProceduralJunction());
 
-        // Minimap Toggle & Pan Interaction
-        document.getElementById('minimap-toggle')?.addEventListener('click', () => {
-            const body = document.getElementById('minimap-body');
-            body?.classList.toggle('collapsed');
-            const icon = document.querySelector('#minimap-toggle svg');
-            if (icon) {
-                icon.style.transform = body?.classList.contains('collapsed') ? 'rotate(180deg)' : 'rotate(0deg)';
-            }
-        });
-
-        const minimap = document.getElementById('minimap-canvas');
-        if (minimap) {
-            const panFromMinimap = (e) => {
-                const rect = minimap.getBoundingClientRect();
-                const mx = e.clientX - rect.left;
-                const my = e.clientY - rect.top;
-                const worldX = (mx / minimap.width) * 5355;
-                const worldY = (my / minimap.height) * 5355;
-
-                const dpr = this.renderer.dpr || 1;
-                const screenW = this.canvas.width / dpr;
-                const screenH = this.canvas.height / dpr;
-
-                this.renderer.offsetX = (screenW / 2) - worldX * this.renderer.scale;
-                this.renderer.offsetY = (screenH / 2) - worldY * this.renderer.scale;
-                this.renderer.render();
-            };
-
-            let isMinimapDown = false;
-            minimap.addEventListener('mousedown', (e) => {
-                isMinimapDown = true;
-                panFromMinimap(e);
-            });
-            window.addEventListener('mousemove', (e) => {
-                if (isMinimapDown) panFromMinimap(e);
-            });
-            window.addEventListener('mouseup', () => {
-                isMinimapDown = false;
-            });
-        }
-
         // Smooth Spline Checkbox
         document.getElementById('inspector-smooth')?.addEventListener('change', (e) => {
             this.activeSmooth = e.target.checked;
+            console.log(`[RoadApp:Inspector] Smooth spline toggle: ${e.target.checked}`);
             if (this.renderer.selectedLaneId) {
                 this.graph.updateLane(this.renderer.selectedLaneId, { smooth: e.target.checked });
                 this.renderer.render();
@@ -840,6 +975,7 @@ class RoadApp {
         document.getElementById('btn-multi-apply-speed')?.addEventListener('click', () => {
             const spd = parseInt(document.getElementById('multi-speed')?.value, 10);
             if (isNaN(spd) || spd <= 0) return;
+            console.log(`[RoadApp:Batch] Applying speed ${spd} MPH to ${this.renderer.selectedLaneIds.size} lanes`);
             for (const laneId of this.renderer.selectedLaneIds) {
                 this.graph.updateLane(laneId, { speedLimit: spd });
             }
@@ -849,6 +985,7 @@ class RoadApp {
         document.getElementById('btn-multi-delete')?.addEventListener('click', () => {
             const laneCount = this.renderer.selectedLaneIds.size;
             const nodeCount = this.renderer.selectedNodeIds.size;
+            console.log(`[RoadApp:Batch] Deleting ${laneCount} lanes and ${nodeCount} nodes in batch`);
             for (const laneId of this.renderer.selectedLaneIds) {
                 this.graph.deleteLane(laneId);
             }
@@ -861,14 +998,42 @@ class RoadApp {
         // Reicon custom element renders reactively upon DOM insertion
     }
 
-    openContextMenu(x, y, lane) {
+    openContextMenu(x, y, lane, world = null, clickedWaypointIndex = -1) {
         const menu = document.getElementById('context-menu');
         menu.style.left = `${x}px`;
         menu.style.top = `${y}px`;
         menu.classList.add('active');
 
+        // Check if right-clicked along segment to offer "Insert Waypoint Here"
+        let insertOptionHtml = '';
+        let projResult = null;
+        if (world && clickedWaypointIndex < 0) {
+            projResult = projectPointOnPolyline(world, lane.waypoints);
+            if (projResult && projResult.dist <= (24 / this.renderer.scale)) {
+                insertOptionHtml = `
+                    <div class="menu-item" id="ctx-insert-waypoint">
+                        <re-icon icon="plus-circle" size="15"></re-icon>
+                        <span>Insert Waypoint Here</span>
+                    </div>
+                `;
+            }
+        }
+
+        let removePointHtml = '';
+        if (clickedWaypointIndex >= 0 && lane.waypoints.length > 2) {
+            removePointHtml = `
+                <div class="menu-item" id="ctx-remove-waypoint" style="color: var(--error);">
+                    <re-icon icon="trash" size="15"></re-icon>
+                    <span>Remove Waypoint #${clickedWaypointIndex + 1}</span>
+                </div>
+            `;
+        }
+
+        const laneDisplayName = lane.name || 'Lane';
         menu.innerHTML = `
-            <div class="menu-header">${lane.name} (${lane.speedLimit} MPH)</div>
+            <div class="menu-header">${laneDisplayName} (${lane.speedLimit} MPH)</div>
+            ${insertOptionHtml}
+            ${removePointHtml}
             <div class="menu-item" id="ctx-reverse">
                 <re-icon icon="rotate-right" size="15"></re-icon>
                 <span>Reverse Direction</span>
@@ -881,15 +1046,39 @@ class RoadApp {
                 <re-icon icon="transfer-h" size="15"></re-icon>
                 <span>Duplicate Parallel (Opposite Dir)</span>
             </div>
-            <div class="menu-item" id="ctx-highway">
-                <re-icon icon="map-point" size="15"></re-icon>
-                <span>Mark as Highway</span>
-            </div>
             <div class="menu-item" id="ctx-delete" style="color: var(--error);">
                 <re-icon icon="trash" size="15"></re-icon>
                 <span>Delete Lane</span>
             </div>
         `;
+
+        if (insertOptionHtml) {
+            document.getElementById('ctx-insert-waypoint')?.addEventListener('click', () => {
+                if (projResult) {
+                    this.graph.insertWaypoint(lane.id, projResult.segmentIndex + 1, projResult.point);
+                    this.saveAutosave();
+                    this.showInspectorForLane(lane);
+                    this.renderer.render();
+                    this.showToast('Waypoint inserted', 'success');
+                }
+                this.hideContextMenu();
+            });
+        }
+
+        if (removePointHtml) {
+            document.getElementById('ctx-remove-waypoint')?.addEventListener('click', () => {
+                try {
+                    this.graph.removeWaypoint(lane.id, clickedWaypointIndex);
+                    this.saveAutosave();
+                    this.showInspectorForLane(lane);
+                    this.renderer.render();
+                    this.showToast(`Waypoint #${clickedWaypointIndex + 1} removed`, 'info');
+                } catch (err) {
+                    this.showToast(err.message, 'error');
+                }
+                this.hideContextMenu();
+            });
+        }
 
         document.getElementById('ctx-reverse')?.addEventListener('click', () => {
             this.reverseSelectedLane();
@@ -901,10 +1090,6 @@ class RoadApp {
         });
         document.getElementById('ctx-parallel-opp')?.addEventListener('click', () => {
             this.duplicateSelectedLane(-24, true);
-            this.hideContextMenu();
-        });
-        document.getElementById('ctx-highway')?.addEventListener('click', () => {
-            this.graph.updateLane(lane.id, { laneType: 'highway', speedLimit: 65 });
             this.hideContextMenu();
         });
         document.getElementById('ctx-delete')?.addEventListener('click', () => {
@@ -992,6 +1177,7 @@ class RoadApp {
         });
 
         this.activeMaterial = val;
+        console.log(`[RoadApp:Inspector] Material set to "${val}"`);
         if (this.renderer.selectedLaneId) {
             this.graph.updateLane(this.renderer.selectedLaneId, { material: val });
             this.renderer.render();
@@ -1045,6 +1231,7 @@ class RoadApp {
         });
 
         this.activeLayer = val;
+        console.log(`[RoadApp:Inspector] Elevation layer set to ${val}`);
         if (this.renderer.selectedLaneId) {
             this.graph.updateLane(this.renderer.selectedLaneId, { layer: val });
             this.renderer.render();
@@ -1084,7 +1271,7 @@ class RoadApp {
         const laneFields = document.getElementById('inspector-lane-fields');
         const nodeFields = document.getElementById('inspector-node-fields');
         const topoGroup = document.getElementById('inspector-topology-group');
-        if (laneFields) laneFields.style.display = 'block';
+        if (laneFields) laneFields.style.display = 'flex';
         if (nodeFields) nodeFields.style.display = 'none';
         if (topoGroup) topoGroup.style.display = 'block';
 
@@ -1100,6 +1287,59 @@ class RoadApp {
         document.getElementById('inspector-single-actions').style.display = 'grid';
         document.getElementById('inspector-multi-section').style.display = 'none';
         document.getElementById('inspector-turn-matrix-group').style.display = 'none';
+
+        // Render Waypoints List
+        const waypointsList = document.getElementById('inspector-waypoints-list');
+        if (waypointsList) {
+            waypointsList.innerHTML = '';
+            lane.waypoints.forEach((pt, idx) => {
+                const row = document.createElement('div');
+                row.className = 'waypoint-item-row';
+
+                let tagClass = 'waypoint-tag';
+                let tagText = `Pt ${idx + 1}`;
+                if (idx === 0) {
+                    tagClass += ' endpoint-start';
+                    tagText = `Pt 1 (Start)`;
+                } else if (idx === lane.waypoints.length - 1) {
+                    tagClass += ' endpoint-end';
+                    tagText = `Pt ${idx + 1} (End)`;
+                }
+
+                const canDelete = lane.waypoints.length > 2;
+
+                row.innerHTML = `
+                    <div class="${tagClass}">
+                        <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: currentColor;"></span>
+                        <span>${tagText}</span>
+                    </div>
+                    <div class="waypoint-coords">(${Math.round(pt.x)}, ${Math.round(pt.y)})</div>
+                    ${canDelete ? `
+                        <button type="button" class="waypoint-btn-del" title="Remove Waypoint ${idx + 1}">
+                            <re-icon icon="trash" size="13"></re-icon>
+                        </button>
+                    ` : '<span style="width: 24px;"></span>'}
+                `;
+
+                if (canDelete) {
+                    const delBtn = row.querySelector('.waypoint-btn-del');
+                    delBtn?.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        try {
+                            this.graph.removeWaypoint(lane.id, idx);
+                            this.saveAutosave();
+                            this.showInspectorForLane(lane);
+                            this.renderer.render();
+                            this.showToast(`Waypoint #${idx + 1} removed`, 'info');
+                        } catch (err) {
+                            this.showToast(err.message, 'error');
+                        }
+                    });
+                }
+
+                waypointsList.appendChild(row);
+            });
+        }
     }
 
     showInspectorForNode(node) {
@@ -1118,11 +1358,16 @@ class RoadApp {
         const nodeFields = document.getElementById('inspector-node-fields');
         const topoGroup = document.getElementById('inspector-topology-group');
         if (laneFields) laneFields.style.display = 'none';
-        if (nodeFields) nodeFields.style.display = 'block';
+        if (nodeFields) nodeFields.style.display = 'flex';
         if (topoGroup) topoGroup.style.display = 'block';
 
         const nodeIdDisplay = document.getElementById('inspector-node-id-display');
         if (nodeIdDisplay) nodeIdDisplay.value = node.id;
+
+        const nodeX = document.getElementById('inspector-node-x');
+        const nodeY = document.getElementById('inspector-node-y');
+        if (nodeX) nodeX.value = Math.round(node.x);
+        if (nodeY) nodeY.value = Math.round(node.y);
 
         const revBtn = document.getElementById('inspector-reverse');
         if (revBtn) revBtn.style.display = 'none';
@@ -1175,12 +1420,6 @@ class RoadApp {
         }
     }
 
-    // Floating Minimap updater
-    updateMinimap() {
-        if (!this.minimapCanvas) return;
-        this.renderer.renderMinimap(this.minimapCanvas);
-    }
-
     // Route Simulator Methods
     openRouteModal() {
         const startSelect = document.getElementById('route-start-node');
@@ -1224,6 +1463,7 @@ class RoadApp {
         }
 
         this.toggleModal('route-modal');
+        console.log('[RoadApp:RouteSimulator] Route simulator modal opened');
         this.refreshIcons();
     }
 
@@ -1237,8 +1477,10 @@ class RoadApp {
             return;
         }
 
+        console.log(`[RoadApp:RouteSimulator] Calculating route from ${startId} -> ${targetId} (emergency: ${emergency})`);
         const route = this.graph.findRoute(startId, targetId, { emergency });
         if (!route.found) {
+            console.warn('[RoadApp:RouteSimulator] Pathfinding failed:', route.error);
             this.showToast(route.error || 'No route found between these junctions', 'error');
             return;
         }
@@ -1289,10 +1531,12 @@ class RoadApp {
             listEl.appendChild(row);
         });
 
+        console.log(`[RoadApp:RouteSimulator] Route solved successfully: ${route.totalDistanceStuds} studs, ETA ${mins}m ${secs}s, ${route.instructions.length} turn steps`);
         this.showToast(`Route calculated: ${route.totalDistanceStuds} studs (${route.instructions.length} steps)`, 'success');
     }
 
     clearActiveRoute() {
+        console.log('[RoadApp:RouteSimulator] Cleared simulated route');
         this.renderer.activeRoute = null;
         this.renderer.render();
         const summaryBar = document.getElementById('route-summary-bar');
@@ -1310,12 +1554,14 @@ class RoadApp {
 
     // Diagnostics Methods
     openDiagnosticsModal() {
+        console.log('[RoadApp:Diagnostics] Diagnostics modal opened');
         this.toggleModal('diagnostics-modal');
         this.runDiagnosticsAudit();
         this.refreshIcons();
     }
 
     runDiagnosticsAudit() {
+        console.log('[RoadApp:Diagnostics] Running network health audit...');
         const issues = this.graph.runAudit();
 
         let orphans = 0;
@@ -1356,6 +1602,7 @@ class RoadApp {
                     this.renderer.offsetY = (screenH / 2) - issue.coords.y * this.renderer.scale;
                     this.renderer.render();
                     document.getElementById('diagnostics-modal')?.classList.remove('active');
+                    console.log(`[RoadApp:Diagnostics] Jumped to issue coords (${Math.round(issue.coords.x)}, ${Math.round(issue.coords.y)})`);
                     this.showToast('Jumped to issue location', 'info');
                 });
 
@@ -1366,11 +1613,13 @@ class RoadApp {
         document.getElementById('badge-orphans').textContent = `${orphans} Disconnected`;
         document.getElementById('badge-duplicates').textContent = `${duplicates} Near-Duplicates`;
         document.getElementById('badge-deadends').textContent = `${deadends} Dead Ends`;
+        console.log(`[RoadApp:Diagnostics] Audit summary: ${orphans} orphan(s), ${duplicates} near-duplicate(s), ${deadends} dead end(s)`);
         this.refreshIcons();
     }
 
     autoMergeNearVertices() {
         const tol = parseFloat(document.getElementById('diag-merge-tol')?.value) || 4;
+        console.log(`[RoadApp:Diagnostics] Running vertex auto-merge (tolerance: ${tol} studs)...`);
         const res = this.graph.mergeNearNodes(tol);
         this.runDiagnosticsAudit();
         this.renderer.render();
@@ -1379,11 +1628,13 @@ class RoadApp {
 
     // Procedural Generator Methods
     openGeneratorModal() {
+        console.log('[RoadApp:Procedural] Procedural generator modal opened');
         this.toggleModal('generator-modal');
         this.refreshIcons();
     }
 
     switchGeneratorTab(tab) {
+        console.log(`[RoadApp:Procedural] Switched junction template to "${tab}"`);
         document.getElementById('tab-gen-roundabout')?.classList.toggle('active', tab === 'roundabout');
         document.getElementById('tab-gen-culdesac')?.classList.toggle('active', tab === 'culdesac');
         document.getElementById('gen-roundabout-fields').style.display = tab === 'roundabout' ? 'block' : 'none';
@@ -1402,6 +1653,7 @@ class RoadApp {
         if (this.generatorActiveTab === 'culdesac') {
             const bulbRadiusStuds = parseFloat(document.getElementById('gen-culdesac-radius')?.value) || 25;
             const stemLengthStuds = parseFloat(document.getElementById('gen-culdesac-stem')?.value) || 50;
+            console.log(`[RoadApp:Procedural] Generating cul-de-sac at view center (${Math.round(center.x)}, ${Math.round(center.y)}) stem: ${stemLengthStuds}, bulb: ${bulbRadiusStuds}`);
             this.graph.createCulDeSac({
                 center,
                 bulbRadiusStuds,
@@ -1415,6 +1667,7 @@ class RoadApp {
         } else {
             const radiusStuds = parseFloat(document.getElementById('gen-roundabout-radius')?.value) || 35;
             const numArms = parseInt(document.getElementById('gen-roundabout-arms')?.value, 10) || 4;
+            console.log(`[RoadApp:Procedural] Generating roundabout at view center (${Math.round(center.x)}, ${Math.round(center.y)}) radius: ${radiusStuds}, arms: ${numArms}`);
             this.graph.createRoundabout({
                 center,
                 radiusStuds,
@@ -1478,6 +1731,7 @@ class RoadApp {
         const modal = document.getElementById('export-modal');
         if (!modal) return;
         modal.classList.add('active');
+        console.log('[RoadApp:Export] Export modal opened');
 
         const jsonStr = this.graph.serialize();
         const geoJsonStr = JSON.stringify(this.graph.toGeoJSON(), null, 2);
@@ -1503,6 +1757,7 @@ class RoadApp {
     }
 
     downloadFile(filename, text, mimeType) {
+        console.log(`[RoadApp:Export] Exporting file "${filename}" (${text.length} characters)`);
         const blob = new Blob([text], { type: mimeType });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -1519,8 +1774,9 @@ class RoadApp {
         try {
             const data = this.graph.serialize();
             localStorage.setItem('erlc_road_graph_autosave', data);
+            console.log(`[RoadApp:Autosave] Saved graph state (${this.graph.lanes.size} lanes, ${this.graph.nodes.size} nodes)`);
         } catch (err) {
-            console.warn('Autosave failed:', err);
+            console.warn('[RoadApp:Autosave] Autosave failed:', err);
         }
     }
 
@@ -1529,14 +1785,15 @@ class RoadApp {
             const saved = localStorage.getItem('erlc_road_graph_autosave');
             if (saved) {
                 this.graph.deserialize(saved, false);
-                console.log('Restored road graph from autosave.');
+                console.log('[RoadApp:Autosave] Restored road graph from localStorage');
             }
         } catch (err) {
-            console.warn('Could not load autosave:', err);
+            console.warn('[RoadApp:Autosave] Could not load autosave:', err);
         }
     }
 
     showToast(message, type = 'info') {
+        console.log(`[RoadApp:Toast:${type}] ${message}`);
         const container = document.getElementById('toast-container');
         if (!container) return;
 

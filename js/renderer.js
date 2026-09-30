@@ -85,6 +85,7 @@ export class RoadRenderer {
 
         this.images.blank = await loadImg('resources/maps/blank.png');
         this.images.postals = await loadImg('resources/maps/postals.png');
+        console.log(`[RoadRenderer:Map] Background maps loaded (blank: ${!!this.images.blank}, postals: ${!!this.images.postals})`);
 
         // Center map initially if loaded
         if (this.images.blank) {
@@ -129,6 +130,7 @@ export class RoadRenderer {
         this.offsetX = screenX - world.x * newScale;
         this.offsetY = screenY - world.y * newScale;
 
+        console.log(`[RoadRenderer:Zoom] Zoom level: ${(newScale * 100).toFixed(0)}%`);
         this.render();
     }
 
@@ -147,6 +149,7 @@ export class RoadRenderer {
         this.scale = Math.min(cw / imgW, ch / imgH) * 0.95;
         this.offsetX = (cw - imgW * this.scale) / 2;
         this.offsetY = (ch - imgH * this.scale) / 2;
+        console.log(`[RoadRenderer:View] Fit view reset (scale: ${(this.scale * 100).toFixed(0)}%)`);
         this.render();
     }
 
@@ -476,13 +479,21 @@ export class RoadRenderer {
             if (isSelected) {
                 fillColor = '#ffffff';
                 ctx.strokeStyle = '#8859ff';
+                ctx.lineWidth = 3 / this.scale;
+
+                // Outer selection ring for selected node
+                ctx.beginPath();
+                ctx.arc(0, 0, baseRadius * 1.9, 0, Math.PI * 2);
+                ctx.strokeStyle = 'rgba(136, 89, 255, 0.75)';
+                ctx.lineWidth = 2 / this.scale;
+                ctx.stroke();
             } else if (isHovered) {
                 ctx.strokeStyle = '#8859ff';
+                ctx.lineWidth = 2 / this.scale;
             } else {
                 ctx.strokeStyle = '#1d1b20';
+                ctx.lineWidth = 2 / this.scale;
             }
-
-            ctx.lineWidth = 2 / this.scale;
 
             if (junc.isMerge || junc.isDemerge) {
                 // Draw Diamond for junctions / merges / demerges
@@ -715,69 +726,6 @@ export class RoadRenderer {
         ctx.lineWidth = 1.5 / this.scale;
         ctx.setLineDash([6 / this.scale, 4 / this.scale]);
         ctx.strokeRect(x, y, w, h);
-        ctx.restore();
-    }
-
-    // Render Floating Minimap
-    renderMinimap(minimapCanvas) {
-        if (!minimapCanvas) return;
-        const mctx = minimapCanvas.getContext('2d');
-        if (!mctx) return;
-
-        const mw = minimapCanvas.width;
-        const mh = minimapCanvas.height;
-        const mapW = 5355;
-        const mapH = 5355;
-
-        mctx.fillStyle = '#121016';
-        mctx.fillRect(0, 0, mw, mh);
-
-        const scaleX = mw / mapW;
-        const scaleY = mh / mapH;
-
-        // Draw miniature lanes
-        mctx.save();
-        mctx.scale(scaleX, scaleY);
-
-        mctx.lineWidth = 18;
-        mctx.lineCap = 'round';
-        mctx.lineJoin = 'round';
-
-        for (const lane of this.graph.lanes.values()) {
-            const pts = lane.waypoints;
-            if (!pts || pts.length < 2) continue;
-
-            mctx.beginPath();
-            mctx.moveTo(pts[0].x, pts[0].y);
-            for (let i = 1; i < pts.length; i++) {
-                mctx.lineTo(pts[i].x, pts[i].y);
-            }
-            mctx.strokeStyle = lane.material === 'wood' ? '#d97706' : lane.material === 'dirt' ? '#ca8a04' : '#8859ff';
-            mctx.globalAlpha = 0.65;
-            mctx.stroke();
-        }
-        mctx.restore();
-
-        // Draw Viewport Camera Frustum (current view bounding box)
-        const dpr = this.dpr || 1;
-        const screenW = this.canvas.width / dpr;
-        const screenH = this.canvas.height / dpr;
-
-        const tl = this.screenToWorld(0, 0);
-        const br = this.screenToWorld(screenW, screenH);
-
-        const vx = Math.max(0, tl.x * scaleX);
-        const vy = Math.max(0, tl.y * scaleY);
-        const vw = Math.min(mw - vx, (br.x - tl.x) * scaleX);
-        const vh = Math.min(mh - vy, (br.y - tl.y) * scaleY);
-
-        mctx.save();
-        mctx.fillStyle = 'rgba(136, 89, 255, 0.2)';
-        mctx.fillRect(vx, vy, vw, vh);
-
-        mctx.strokeStyle = '#ffffff';
-        mctx.lineWidth = 1.5;
-        mctx.strokeRect(vx, vy, vw, vh);
-        mctx.restore();
     }
 }
+
